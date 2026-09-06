@@ -74,6 +74,10 @@
   .sniper-banner.sell{border-color:var(--red);color:var(--red);box-shadow:0 0 20px rgba(255,77,77,0.25);background:rgba(255,77,77,0.06);}
   .sniper-banner.tp{border-color:var(--amber);color:var(--amber);box-shadow:0 0 20px rgba(255,176,32,0.3);background:rgba(255,176,32,0.08);}
   .sniper-sub{font-size:10px;letter-spacing:1px;color:var(--muted);margin-top:6px;font-weight:normal;}
+  .sniper-stats{display:flex;justify-content:center;gap:36px;margin-top:12px;}
+  .stat-col{text-align:center;}
+  .stat-label{font-size:10px;letter-spacing:2px;color:var(--muted);margin-bottom:2px;}
+  .stat-value{font-size:24px;font-weight:bold;letter-spacing:1px;}
   .footer-note{font-size:10px;color:var(--muted);text-align:center;margin-top:14px;line-height:1.6;}
 </style>
 </head>
@@ -131,6 +135,10 @@
 
   <div class="sniper-banner" id="sniperBanner">
     NO ALIGNMENT &mdash; WAIT
+    <div class="sniper-stats" id="sniperStats" style="display:none;">
+      <div class="stat-col"><div class="stat-label">ENTRY</div><div class="stat-value" id="entryStat">&mdash;</div></div>
+      <div class="stat-col"><div class="stat-label">TP</div><div class="stat-value" id="tpStat">&mdash;</div></div>
+    </div>
     <div class="sniper-sub">H1 trend and M1 timing are not agreeing</div>
   </div>
 
@@ -440,6 +448,9 @@ function recomputeM1(){
 function updateSniper(){
   const banner = document.getElementById('sniperBanner');
   const sub = banner.querySelector('.sniper-sub');
+  const stats = document.getElementById('sniperStats');
+  const entryStat = document.getElementById('entryStat');
+  const tpStat = document.getElementById('tpStat');
   banner.classList.remove('buy', 'sell', 'tp');
 
   const aligned = (h1Zone === m1Zone) && h1Zone !== 'NEUTRAL';
@@ -451,23 +462,27 @@ function updateSniper(){
     const hitTP = activeTrade.direction === 'BUY' ? price >= activeTrade.tpPrice : price <= activeTrade.tpPrice;
     const reversed = aligned && direction !== activeTrade.direction;
 
+    stats.style.display = 'flex';
+    entryStat.textContent = activeTrade.entryPrice.toFixed(3);
+    tpStat.textContent = activeTrade.tpPrice.toFixed(3);
+
     if (hitTP) {
       banner.classList.add('tp');
       banner.firstChild.textContent = `TP HIT — EXIT ${activeTrade.direction} `;
-      sub.textContent = `Entry ${activeTrade.entryPrice.toFixed(3)} → TP ${activeTrade.tpPrice.toFixed(3)} reached`;
+      sub.textContent = `TP reached at ${price.toFixed(3)}`;
       activeTrade = null;
       return;
     }
     if (reversed) {
       banner.classList.add('tp');
       banner.firstChild.textContent = `EXIT — SIGNAL REVERSED `;
-      sub.textContent = `Was ${activeTrade.direction} from ${activeTrade.entryPrice.toFixed(3)}, trend flipped before TP`;
+      sub.textContent = `Trend flipped before TP · last ${price.toFixed(3)}`;
       activeTrade = null;
       return;
     }
     banner.classList.add(activeTrade.direction === 'BUY' ? 'buy' : 'sell');
     banner.firstChild.textContent = `HOLDING ${activeTrade.direction} — WAIT FOR TP `;
-    sub.textContent = `Entry ${activeTrade.entryPrice.toFixed(3)} · TP ${activeTrade.tpPrice.toFixed(3)} · last ${price.toFixed(3)}`;
+    sub.textContent = `Last ${price.toFixed(3)}`;
     return;
   }
 
@@ -479,11 +494,15 @@ function updateSniper(){
       activeTrade = { direction, entryPrice: price, tpPrice: tp };
       banner.classList.add(direction === 'BUY' ? 'buy' : 'sell');
       banner.firstChild.textContent = `SNIPER ENTRY: ${direction} `;
-      sub.textContent = `Entry ${price.toFixed(3)} · TP ${tp.toFixed(3)} (${tpMultiplier}× ATR M1)`;
+      stats.style.display = 'flex';
+      entryStat.textContent = price.toFixed(3);
+      tpStat.textContent = tp.toFixed(3);
+      sub.textContent = `${tpMultiplier}× ATR M1`;
       return;
     }
   }
 
+  stats.style.display = 'none';
   banner.firstChild.textContent = 'NO ALIGNMENT — WAIT ';
   sub.textContent = 'H1 trend and M1 timing are not agreeing';
 }
