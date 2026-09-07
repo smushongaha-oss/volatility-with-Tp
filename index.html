@@ -94,6 +94,24 @@
     <select id="symbolSelect" disabled><option>Loading…</option></select>
   </div>
 
+  <div class="selector-row" style="margin-bottom:16px;">
+    <label style="white-space:nowrap;">ALERTS</label>
+    <button id="notifyBtn" style="flex:1;background:#0d1830;color:var(--cyan);border:1px solid var(--cyan-dim);border-radius:6px;padding:8px 10px;font-family:'Courier New',monospace;font-size:12px;letter-spacing:1px;cursor:pointer;">🔔 ENABLE NOTIFICATIONS</button>
+  </div>
+
+  <div class="tg-config" style="border:1px solid var(--cyan-dim);border-radius:8px;padding:12px;margin-bottom:16px;">
+    <div style="font-size:11px;letter-spacing:1px;color:var(--cyan-dim);margin-bottom:8px;">TELEGRAM ALERTS</div>
+    <div style="display:flex;flex-direction:column;gap:8px;">
+      <input type="text" id="tgToken" placeholder="Bot token (from @BotFather)" style="background:#0d1830;color:var(--text);border:1px solid var(--cyan-dim);border-radius:6px;padding:8px;font-family:'Courier New',monospace;font-size:12px;">
+      <input type="text" id="tgChatId" placeholder="Chat ID" style="background:#0d1830;color:var(--text);border:1px solid var(--cyan-dim);border-radius:6px;padding:8px;font-family:'Courier New',monospace;font-size:12px;">
+      <div style="display:flex;gap:8px;">
+        <button id="tgSaveBtn" style="flex:1;background:#0d1830;color:var(--cyan);border:1px solid var(--cyan-dim);border-radius:6px;padding:8px;font-family:'Courier New',monospace;font-size:11px;letter-spacing:1px;cursor:pointer;">SAVE</button>
+        <button id="tgTestBtn" style="flex:1;background:#0d1830;color:var(--cyan);border:1px solid var(--cyan-dim);border-radius:6px;padding:8px;font-family:'Courier New',monospace;font-size:11px;letter-spacing:1px;cursor:pointer;">SEND TEST</button>
+      </div>
+      <div id="tgStatus" style="font-size:10px;color:var(--muted);"></div>
+    </div>
+  </div>
+
   <div class="section-label">H1 — TREND BIAS</div>
   <div class="price-row"><span>Price</span><span class="val" id="h1Price">&mdash;</span></div>
   <div class="price-row"><span>CCI(14) H1</span><span class="val" id="h1Cci">&mdash;</span></div>
@@ -146,7 +164,11 @@
     Bias/entry = CCI(14), mapped to a 0&ndash;100 scale. &ge;60 buy zone &middot; &le;40 sell zone &middot; else neutral.<br>
     Sniper entry fires when H1 (trend) and M1 (timing) land in the same zone; TP = entry &plusmn; (ATR(14) on M1 &times; multiplier).<br>
     Exit is flagged either when TP is hit, or if the signal reverses before TP.<br>
-    Instrument list is pulled live from Deriv &mdash; every Volatility Index they currently offer will show up here.
+    Instrument list is pulled live from Deriv &mdash; every Volatility Index they currently offer will show up here.<br><br>
+    <strong>Telegram setup:</strong> message @BotFather on Telegram, send /newbot, paste the token above.
+    Then message your new bot anything, open
+    <span style="word-break:break-all;">api.telegram.org/bot&lt;TOKEN&gt;/getUpdates</span>
+    in a browser and copy the "chat":"id" number into Chat ID above. Tap SAVE, then SEND TEST.
   </div>
 </div>
 
@@ -391,6 +413,101 @@ document.getElementById('tpMultInput').addEventListener('input', (e) => {
   if (!isNaN(v) && v > 0) tpMultiplier = v;
 });
 
+const notifyBtn = document.getElementById('notifyBtn');
+
+function refreshNotifyBtn(){
+  if (!('Notification' in window)) {
+    notifyBtn.textContent = '🔕 NOT SUPPORTED — ADD TO HOME SCREEN (iOS)';
+    notifyBtn.disabled = true;
+    return;
+  }
+  if (Notification.permission === 'granted') {
+    notifyBtn.textContent = '✅ NOTIFICATIONS ON';
+  } else if (Notification.permission === 'denied') {
+    notifyBtn.textContent = '🔕 BLOCKED — ENABLE IN BROWSER SETTINGS';
+  } else {
+    notifyBtn.textContent = '🔔 ENABLE NOTIFICATIONS';
+  }
+}
+
+notifyBtn.addEventListener('click', () => {
+  if (!('Notification' in window)) return;
+  if (Notification.permission === 'default') {
+    Notification.requestPermission().then(refreshNotifyBtn);
+  }
+});
+
+refreshNotifyBtn();
+
+let audioCtx = null;
+function playBeep(){
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.connect(g); g.connect(audioCtx.destination);
+    o.frequency.value = 880;
+    g.gain.setValueAtTime(0.15, audioCtx.currentTime);
+    o.start();
+    o.stop(audioCtx.currentTime + 0.18);
+  } catch (e) {}
+}
+
+function fireAlert(title, body){
+  playBeep();
+  if ('Notification' in window && Notification.permission === 'granted') {
+    try { new Notification(title, { body }); } catch (e) { console.warn('Notification failed:', e); }
+  }
+  sendTelegram(`${title}\n${body}`);
+}
+
+const tgToken = document.getElementById('tgToken');
+const tgChatId = document.getElementById('tgChatId');
+const tgStatus = document.getElementById('tgStatus');
+
+tgToken.value = localStorage.getItem('tg_token') || '';
+tgChatId.value = localStorage.getItem('tg_chat_id') || '';
+
+document.getElementById('tgSaveBtn').addEventListener('click', () => {
+  localStorage.setItem('tg_token', tgToken.value.trim());
+  localStorage.setItem('tg_chat_id', tgChatId.value.trim());
+  tgStatus.textContent = 'Saved.';
+  tgStatus.style.color = 'var(--green)';
+});
+
+document.getElementById('tgTestBtn').addEventListener('click', () => {
+  sendTelegram('✅ Test alert from your Volatility dashboard.');
+});
+
+function sendTelegram(text){
+  const token = (tgToken.value || localStorage.getItem('tg_token') || '').trim();
+  const chatId = (tgChatId.value || localStorage.getItem('tg_chat_id') || '').trim();
+  if (!token || !chatId) {
+    tgStatus.textContent = 'Add a bot token and chat ID first.';
+    tgStatus.style.color = 'var(--amber)';
+    return;
+  }
+  fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chat_id: chatId, text })
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.ok) {
+      tgStatus.textContent = 'Sent ✓';
+      tgStatus.style.color = 'var(--green)';
+    } else {
+      tgStatus.textContent = 'Telegram error: ' + (data.description || 'unknown');
+      tgStatus.style.color = 'var(--red)';
+    }
+  })
+  .catch(err => {
+    tgStatus.textContent = 'Send failed: ' + err.message;
+    tgStatus.style.color = 'var(--red)';
+  });
+}
+
 function cciToValue(cci){
   const clamped = Math.max(-200, Math.min(200, cci));
   return ((clamped + 200) / 400) * 100;
@@ -470,6 +587,7 @@ function updateSniper(){
       banner.classList.add('tp');
       banner.firstChild.textContent = `TP HIT — EXIT ${activeTrade.direction} `;
       sub.textContent = `TP reached at ${price.toFixed(3)}`;
+      fireAlert(`✅ TP HIT — Exit ${activeTrade.direction}`, `${DISPLAY_NAME}: TP reached at ${price.toFixed(3)}`);
       activeTrade = null;
       return;
     }
@@ -477,6 +595,7 @@ function updateSniper(){
       banner.classList.add('tp');
       banner.firstChild.textContent = `EXIT — SIGNAL REVERSED `;
       sub.textContent = `Trend flipped before TP · last ${price.toFixed(3)}`;
+      fireAlert(`⚠️ Signal reversed — Exit ${activeTrade.direction}`, `${DISPLAY_NAME}: trend flipped before TP, last ${price.toFixed(3)}`);
       activeTrade = null;
       return;
     }
@@ -498,6 +617,7 @@ function updateSniper(){
       entryStat.textContent = price.toFixed(3);
       tpStat.textContent = tp.toFixed(3);
       sub.textContent = `${tpMultiplier}× ATR M1`;
+      fireAlert(`🎯 SNIPER ENTRY: ${direction}`, `${DISPLAY_NAME}: entry ${price.toFixed(3)} · TP ${tp.toFixed(3)} (${tpMultiplier}× ATR M1)`);
       return;
     }
   }
