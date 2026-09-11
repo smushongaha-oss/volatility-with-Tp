@@ -97,6 +97,24 @@
     <label style="margin-left:auto;">P.A.T. &mdash; PRICE ADVANCE TREND</label>
   </div>
 
+  <div class="selector-row" style="margin-bottom:16px;">
+    <label style="white-space:nowrap;">ALERTS</label>
+    <button id="notifyBtn" style="flex:1;background:#0d1830;color:var(--cyan);border:1px solid var(--cyan-dim);border-radius:6px;padding:8px 10px;font-family:'Courier New',monospace;font-size:12px;letter-spacing:1px;cursor:pointer;">🔔 ENABLE NOTIFICATIONS</button>
+  </div>
+
+  <div class="tg-config" style="border:1px solid var(--cyan-dim);border-radius:8px;padding:12px;margin-bottom:16px;">
+    <div style="font-size:11px;letter-spacing:1px;color:var(--cyan-dim);margin-bottom:8px;">TELEGRAM ALERTS</div>
+    <div style="display:flex;flex-direction:column;gap:8px;">
+      <input type="text" id="tgToken" placeholder="Bot token (from @BotFather)" style="background:#0d1830;color:var(--text);border:1px solid var(--cyan-dim);border-radius:6px;padding:8px;font-family:'Courier New',monospace;font-size:12px;">
+      <input type="text" id="tgChatId" placeholder="Chat ID" style="background:#0d1830;color:var(--text);border:1px solid var(--cyan-dim);border-radius:6px;padding:8px;font-family:'Courier New',monospace;font-size:12px;">
+      <div style="display:flex;gap:8px;">
+        <button id="tgSaveBtn" style="flex:1;background:#0d1830;color:var(--cyan);border:1px solid var(--cyan-dim);border-radius:6px;padding:8px;font-family:'Courier New',monospace;font-size:11px;letter-spacing:1px;cursor:pointer;">SAVE</button>
+        <button id="tgTestBtn" style="flex:1;background:#0d1830;color:var(--cyan);border:1px solid var(--cyan-dim);border-radius:6px;padding:8px;font-family:'Courier New',monospace;font-size:11px;letter-spacing:1px;cursor:pointer;">SEND TEST</button>
+      </div>
+      <div id="tgStatus" style="font-size:10px;color:var(--muted);"></div>
+    </div>
+  </div>
+
   <div class="section-label">H1 — STRUCTURE / TREND BIAS</div>
   <div class="price-row"><span>Price</span><span class="val" id="h1Price">&mdash;</span></div>
   <div class="swing-row"><span>Last Swing High</span><span class="val" id="h1SwingHigh">&mdash;</span></div>
@@ -143,7 +161,11 @@
     H1 gauge = current swing-structure state (Higher-High/Higher-Low = bullish, Lower-High/Lower-Low = bearish), fading toward neutral the longer since the last confirmed break.<br>
     M1 gauge = a fresh Break of Structure on the M1 chart, hottest right at the break and decaying back to neutral within ~8 bars if nothing follows through.<br>
     Sniper entry fires only when the H1 trend and a still-fresh M1 break agree on direction. Swing points use a &ldquo;SWING LOOKBACK&rdquo;-bar fractal (bars needed on each side to confirm a high/low).<br>
-    Instrument list is pulled live from Deriv. This is a monitoring/research display only — it does not place trades. Validate any strategy in the MT5 Strategy Tester before risking real funds.
+    Instrument list is pulled live from Deriv. This is a monitoring/research display only — it does not place trades. Validate any strategy in the MT5 Strategy Tester before risking real funds.<br><br>
+    <strong>Telegram setup:</strong> message @BotFather on Telegram, send /newbot, paste the token above.
+    Then message your new bot anything, open
+    <span style="word-break:break-all;">api.telegram.org/bot&lt;TOKEN&gt;/getUpdates</span>
+    in a browser and copy the "chat":"id" number into Chat ID above. Tap SAVE, then SEND TEST.
   </div>
 </div>
 
@@ -165,6 +187,7 @@ let h1Zone = 'NEUTRAL';
 let m1Zone = 'NEUTRAL';
 let dataReceived = false;
 let lookback = 5;
+let lastSniperState = 'NONE'; // dedupe alerts — only fire when this actually changes
 
 const FALLBACK_SYMBOLS = [
   { symbol: 'R_10',    display_name: 'Volatility 10 Index' },
@@ -344,6 +367,7 @@ function loadSymbol(sym){
   m1Candles = [];
   h1Zone = 'NEUTRAL';
   m1Zone = 'NEUTRAL';
+  lastSniperState = 'NONE';
   updateSniper();
   document.getElementById('h1Price').textContent = '—';
   document.getElementById('h1SwingHigh').textContent = '—';
@@ -366,6 +390,107 @@ function fetchCandles(granularity, count){
     granularity: granularity,
     style: "candles"
   }));
+}
+
+//------------------------------------------------------------------
+// Notifications: browser Notification API + beep
+//------------------------------------------------------------------
+const notifyBtn = document.getElementById('notifyBtn');
+
+function refreshNotifyBtn(){
+  if (!('Notification' in window)) {
+    notifyBtn.textContent = '🔕 NOT SUPPORTED — ADD TO HOME SCREEN (iOS)';
+    notifyBtn.disabled = true;
+    return;
+  }
+  if (Notification.permission === 'granted') {
+    notifyBtn.textContent = '✅ NOTIFICATIONS ON';
+  } else if (Notification.permission === 'denied') {
+    notifyBtn.textContent = '🔕 BLOCKED — ENABLE IN BROWSER SETTINGS';
+  } else {
+    notifyBtn.textContent = '🔔 ENABLE NOTIFICATIONS';
+  }
+}
+
+notifyBtn.addEventListener('click', () => {
+  if (!('Notification' in window)) return;
+  if (Notification.permission === 'default') {
+    Notification.requestPermission().then(refreshNotifyBtn);
+  }
+});
+
+refreshNotifyBtn();
+
+let audioCtx = null;
+function playBeep(){
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.connect(g); g.connect(audioCtx.destination);
+    o.frequency.value = 880;
+    g.gain.setValueAtTime(0.15, audioCtx.currentTime);
+    o.start();
+    o.stop(audioCtx.currentTime + 0.18);
+  } catch (e) {}
+}
+
+function fireAlert(title, body){
+  playBeep();
+  if ('Notification' in window && Notification.permission === 'granted') {
+    try { new Notification(title, { body }); } catch (e) { console.warn('Notification failed:', e); }
+  }
+  sendTelegram(`${title}\n${body}`);
+}
+
+//------------------------------------------------------------------
+// Telegram config + sender
+//------------------------------------------------------------------
+const tgToken = document.getElementById('tgToken');
+const tgChatId = document.getElementById('tgChatId');
+const tgStatus = document.getElementById('tgStatus');
+
+tgToken.value = localStorage.getItem('tg_token') || '';
+tgChatId.value = localStorage.getItem('tg_chat_id') || '';
+
+document.getElementById('tgSaveBtn').addEventListener('click', () => {
+  localStorage.setItem('tg_token', tgToken.value.trim());
+  localStorage.setItem('tg_chat_id', tgChatId.value.trim());
+  tgStatus.textContent = 'Saved.';
+  tgStatus.style.color = 'var(--green)';
+});
+
+document.getElementById('tgTestBtn').addEventListener('click', () => {
+  sendTelegram('✅ Test alert from your P.A.T. dashboard.');
+});
+
+function sendTelegram(text){
+  const token = (tgToken.value || localStorage.getItem('tg_token') || '').trim();
+  const chatId = (tgChatId.value || localStorage.getItem('tg_chat_id') || '').trim();
+  if (!token || !chatId) {
+    tgStatus.textContent = 'Add a bot token and chat ID first.';
+    tgStatus.style.color = 'var(--amber)';
+    return;
+  }
+  fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chat_id: chatId, text })
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.ok) {
+      tgStatus.textContent = 'Sent ✓';
+      tgStatus.style.color = 'var(--green)';
+    } else {
+      tgStatus.textContent = 'Telegram error: ' + (data.description || 'unknown');
+      tgStatus.style.color = 'var(--red)';
+    }
+  })
+  .catch(err => {
+    tgStatus.textContent = 'Send failed: ' + err.message;
+    tgStatus.style.color = 'var(--red)';
+  });
 }
 
 //------------------------------------------------------------------
@@ -476,17 +601,31 @@ function updateSniper(){
   const banner = document.getElementById('sniperBanner');
   const sub = banner.querySelector('.sniper-sub');
   banner.classList.remove('buy', 'sell');
+
+  let newState = 'NONE';
   if (h1Zone === 'BUY' && m1Zone === 'BUY') {
     banner.classList.add('buy');
     banner.firstChild.textContent = 'SNIPER ENTRY: BUY ';
     sub.textContent = 'H1 bullish structure + fresh M1 bullish break';
+    newState = 'BUY';
   } else if (h1Zone === 'SELL' && m1Zone === 'SELL') {
     banner.classList.add('sell');
     banner.firstChild.textContent = 'SNIPER ENTRY: SELL ';
     sub.textContent = 'H1 bearish structure + fresh M1 bearish break';
+    newState = 'SELL';
   } else {
     banner.firstChild.textContent = 'NO ALIGNMENT — WAIT ';
     sub.textContent = 'H1 trend and M1 timing are not agreeing';
+  }
+
+  // Only alert on a genuine transition into a new state, not every recompute.
+  if (newState !== lastSniperState) {
+    if (newState === 'BUY') {
+      fireAlert('🎯 SNIPER ENTRY: BUY', `${DISPLAY_NAME}: H1 bullish structure + fresh M1 bullish break`);
+    } else if (newState === 'SELL') {
+      fireAlert('🎯 SNIPER ENTRY: SELL', `${DISPLAY_NAME}: H1 bearish structure + fresh M1 bearish break`);
+    }
+    lastSniperState = newState;
   }
 }
 
