@@ -75,7 +75,13 @@
   }
   .sniper-banner.buy{border-color:var(--green);color:var(--green);box-shadow:0 0 20px rgba(61,220,132,0.25);background:rgba(61,220,132,0.06);}
   .sniper-banner.sell{border-color:var(--red);color:var(--red);box-shadow:0 0 20px rgba(255,77,77,0.25);background:rgba(255,77,77,0.06);}
+  .sniper-banner.tp{border-color:var(--amber);color:var(--amber);box-shadow:0 0 20px rgba(255,176,32,0.3);background:rgba(255,176,32,0.08);}
   .sniper-sub{font-size:10px;letter-spacing:1px;color:var(--muted);margin-top:6px;font-weight:normal;}
+  .tp-stats{display:flex;justify-content:center;gap:20px;margin-top:12px;flex-wrap:wrap;}
+  .tp-col{text-align:center;}
+  .tp-label{font-size:9px;letter-spacing:2px;color:var(--muted);margin-bottom:2px;}
+  .tp-value{font-size:15px;font-weight:bold;letter-spacing:1px;color:var(--muted);}
+  .tp-value.hit{color:var(--green);text-decoration:line-through;text-decoration-color:rgba(61,220,132,0.6);}
   .footer-note{font-size:10px;color:var(--muted);text-align:center;margin-top:14px;line-height:1.6;}
 </style>
 </head>
@@ -113,6 +119,12 @@
       </div>
       <div id="tgStatus" style="font-size:10px;color:var(--muted);"></div>
     </div>
+  </div>
+
+  <div class="selector-row">
+    <label for="tpMultInput" style="white-space:nowrap;">TP STEP (&times; ATR M1)</label>
+    <input type="number" id="tpMultInput" min="0.5" max="5" step="0.5" value="1">
+    <label style="margin-left:auto;font-size:10px;color:var(--muted);">TP1/TP2/TP3 = step &times; 1/2/3</label>
   </div>
 
   <div class="section-label">H1 — STRUCTURE / TREND BIAS</div>
@@ -153,6 +165,12 @@
 
   <div class="sniper-banner" id="sniperBanner">
     NO ALIGNMENT &mdash; WAIT
+    <div class="tp-stats" id="tpStats" style="display:none;">
+      <div class="tp-col"><div class="tp-label">ENTRY</div><div class="tp-value" id="entryStat">&mdash;</div></div>
+      <div class="tp-col"><div class="tp-label">TP1</div><div class="tp-value" id="tp1Stat">&mdash;</div></div>
+      <div class="tp-col"><div class="tp-label">TP2</div><div class="tp-value" id="tp2Stat">&mdash;</div></div>
+      <div class="tp-col"><div class="tp-label">TP3</div><div class="tp-value" id="tp3Stat">&mdash;</div></div>
+    </div>
     <div class="sniper-sub">H1 trend and M1 timing are not agreeing</div>
   </div>
 
@@ -161,6 +179,7 @@
     H1 gauge = current swing-structure state (Higher-High/Higher-Low = bullish, Lower-High/Lower-Low = bearish), fading toward neutral the longer since the last confirmed break.<br>
     M1 gauge = a fresh Break of Structure on the M1 chart, hottest right at the break and decaying back to neutral within ~8 bars if nothing follows through.<br>
     Sniper entry fires only when the H1 trend and a still-fresh M1 break agree on direction. Swing points use a &ldquo;SWING LOOKBACK&rdquo;-bar fractal (bars needed on each side to confirm a high/low).<br>
+    On entry, three take-profit levels are set at 1&times;, 2&times;, and 3&times; the TP step (ATR(14) on M1) from entry price. Each level alerts once when reached; a reversal before TP3 closes the setup early.<br>
     Instrument list is pulled live from Deriv. This is a monitoring/research display only — it does not place trades. Validate any strategy in the MT5 Strategy Tester before risking real funds.<br><br>
     <strong>Telegram setup:</strong> message @BotFather on Telegram, send /newbot, paste the token above.
     Then message your new bot anything, open
@@ -173,9 +192,10 @@
 const APP_ID = 1089;
 const GRAN_H1 = 3600;
 const GRAN_M1 = 60;
+const ATR_PERIOD = 14;
 const H1_REFRESH_MS = 5 * 60 * 1000;
-const H1_DECAY_PER_BAR = 1.5;   // how fast the H1 bias fades toward neutral per bar since the break
-const M1_DECAY_PER_BAR = 4.5;   // faster fade for M1 timing so it behaves like a "fresh trigger"
+const H1_DECAY_PER_BAR = 1.5;
+const M1_DECAY_PER_BAR = 4.5;
 
 let ws;
 let SYMBOL = null;
@@ -187,7 +207,8 @@ let h1Zone = 'NEUTRAL';
 let m1Zone = 'NEUTRAL';
 let dataReceived = false;
 let lookback = 5;
-let lastSniperState = 'NONE'; // dedupe alerts — only fire when this actually changes
+let tpStep = 1;
+let activeTrade = null; // { direction, entryPrice, tp1, tp2, tp3, hit1, hit2, hit3 }
 
 const FALLBACK_SYMBOLS = [
   { symbol: 'R_10',    display_name: 'Volatility 10 Index' },
@@ -211,12 +232,18 @@ const symbolSelect = document.getElementById('symbolSelect');
 const mainTitle = document.getElementById('mainTitle');
 const subLine = document.getElementById('subLine');
 const lookbackInput = document.getElementById('lookbackInput');
+const tpMultInput = document.getElementById('tpMultInput');
 
 lookbackInput.addEventListener('change', () => {
   const v = parseInt(lookbackInput.value, 10);
   lookback = Number.isFinite(v) && v >= 2 ? Math.min(15, v) : 5;
   recomputeH1();
   recomputeM1();
+});
+
+tpMultInput.addEventListener('change', () => {
+  const v = parseFloat(tpMultInput.value);
+  tpStep = Number.isFinite(v) && v > 0 ? v : 1;
 });
 
 function setConnState(live, label){
@@ -367,7 +394,7 @@ function loadSymbol(sym){
   m1Candles = [];
   h1Zone = 'NEUTRAL';
   m1Zone = 'NEUTRAL';
-  lastSniperState = 'NONE';
+  activeTrade = null;
   updateSniper();
   document.getElementById('h1Price').textContent = '—';
   document.getElementById('h1SwingHigh').textContent = '—';
@@ -500,7 +527,6 @@ function computeStructure(candles, lb){
   const n = candles.length;
   if (n < lb * 2 + 3) return { state: 0, barsSinceBos: 999, lastSwingHigh: null, lastSwingLow: null };
 
-  // Find fractal swing points; each is only "known" (confirmed) lb bars after it forms.
   const swings = [];
   for (let i = lb; i < n - lb; i++) {
     let isHigh = true, isLow = true;
@@ -539,6 +565,16 @@ function computeStructure(candles, lb){
 
   const barsSinceBos = lastBosIndex === -1 ? 999 : (n - 1 - lastBosIndex);
   return { state, barsSinceBos, lastSwingHigh, lastSwingLow };
+}
+
+function computeATR(candles, period){
+  if (candles.length < period + 1) return null;
+  const trs = [];
+  for (let i = candles.length - period; i < candles.length; i++){
+    const c = candles[i], prev = candles[i - 1];
+    trs.push(Math.max(c.high - c.low, Math.abs(c.high - prev.close), Math.abs(c.low - prev.close)));
+  }
+  return trs.reduce((a,b) => a+b, 0) / period;
 }
 
 function structureToValue(res, decayPerBar){
@@ -595,38 +631,101 @@ function recomputeM1(){
   updateGaugeVisual('m1', value, res);
   m1Zone = zoneOf(value);
   updateSniper();
+  manageTrade();
 }
 
 function updateSniper(){
   const banner = document.getElementById('sniperBanner');
   const sub = banner.querySelector('.sniper-sub');
-  banner.classList.remove('buy', 'sell');
+  if (activeTrade) return; // banner is owned by manageTrade while a trade is open
+  banner.classList.remove('buy', 'sell', 'tp');
 
-  let newState = 'NONE';
   if (h1Zone === 'BUY' && m1Zone === 'BUY') {
     banner.classList.add('buy');
     banner.firstChild.textContent = 'SNIPER ENTRY: BUY ';
     sub.textContent = 'H1 bullish structure + fresh M1 bullish break';
-    newState = 'BUY';
   } else if (h1Zone === 'SELL' && m1Zone === 'SELL') {
     banner.classList.add('sell');
     banner.firstChild.textContent = 'SNIPER ENTRY: SELL ';
     sub.textContent = 'H1 bearish structure + fresh M1 bearish break';
-    newState = 'SELL';
   } else {
     banner.firstChild.textContent = 'NO ALIGNMENT — WAIT ';
     sub.textContent = 'H1 trend and M1 timing are not agreeing';
   }
+}
 
-  // Only alert on a genuine transition into a new state, not every recompute.
-  if (newState !== lastSniperState) {
-    if (newState === 'BUY') {
-      fireAlert('🎯 SNIPER ENTRY: BUY', `${DISPLAY_NAME}: H1 bullish structure + fresh M1 bullish break`);
-    } else if (newState === 'SELL') {
-      fireAlert('🎯 SNIPER ENTRY: SELL', `${DISPLAY_NAME}: H1 bearish structure + fresh M1 bearish break`);
+function manageTrade(){
+  const banner = document.getElementById('sniperBanner');
+  const sub = banner.querySelector('.sniper-sub');
+  const stats = document.getElementById('tpStats');
+  const price = m1Candles[m1Candles.length - 1]?.close;
+  const aligned = (h1Zone === m1Zone) && h1Zone !== 'NEUTRAL';
+  const direction = aligned ? h1Zone : null;
+
+  if (!activeTrade) {
+    if (aligned && price !== undefined) {
+      const atr = computeATR(m1Candles, ATR_PERIOD);
+      if (!atr) return;
+      const step = atr * tpStep;
+      const sign = direction === 'BUY' ? 1 : -1;
+      activeTrade = {
+        direction, entryPrice: price,
+        tp1: price + sign * step, tp2: price + sign * 2 * step, tp3: price + sign * 3 * step,
+        hit1: false, hit2: false, hit3: false
+      };
+      stats.style.display = 'flex';
+      document.getElementById('entryStat').textContent = price.toFixed(3);
+      document.getElementById('tp1Stat').textContent = activeTrade.tp1.toFixed(3);
+      document.getElementById('tp2Stat').textContent = activeTrade.tp2.toFixed(3);
+      document.getElementById('tp3Stat').textContent = activeTrade.tp3.toFixed(3);
+      ['tp1Stat','tp2Stat','tp3Stat'].forEach(id => document.getElementById(id).classList.remove('hit'));
+      banner.classList.remove('buy','sell','tp');
+      banner.classList.add(direction === 'BUY' ? 'buy' : 'sell');
+      banner.firstChild.textContent = `SNIPER ENTRY: ${direction} `;
+      sub.textContent = `TP1/TP2/TP3 set at ${tpStep}\u00d7/${tpStep*2}\u00d7/${tpStep*3}\u00d7 ATR M1`;
+      fireAlert(`🎯 SNIPER ENTRY: ${direction}`, `${DISPLAY_NAME}: entry ${price.toFixed(3)}\nTP1 ${activeTrade.tp1.toFixed(3)} · TP2 ${activeTrade.tp2.toFixed(3)} · TP3 ${activeTrade.tp3.toFixed(3)}`);
     }
-    lastSniperState = newState;
+    return;
   }
+
+  if (price === undefined) return;
+  const favorable = (target) => activeTrade.direction === 'BUY' ? price >= target : price <= target;
+  const reversed = aligned && direction !== activeTrade.direction;
+
+  if (!activeTrade.hit1 && favorable(activeTrade.tp1)) {
+    activeTrade.hit1 = true;
+    document.getElementById('tp1Stat').classList.add('hit');
+    fireAlert(`✅ TP1 HIT — ${activeTrade.direction}`, `${DISPLAY_NAME}: TP1 reached at ${price.toFixed(3)}`);
+  }
+  if (!activeTrade.hit2 && favorable(activeTrade.tp2)) {
+    activeTrade.hit2 = true;
+    document.getElementById('tp2Stat').classList.add('hit');
+    fireAlert(`✅ TP2 HIT — ${activeTrade.direction}`, `${DISPLAY_NAME}: TP2 reached at ${price.toFixed(3)}`);
+  }
+  if (!activeTrade.hit3 && favorable(activeTrade.tp3)) {
+    activeTrade.hit3 = true;
+    document.getElementById('tp3Stat').classList.add('hit');
+    fireAlert(`✅ TP3 HIT — FULL EXIT ${activeTrade.direction}`, `${DISPLAY_NAME}: TP3 reached at ${price.toFixed(3)} — setup complete`);
+    banner.classList.remove('buy','sell');
+    banner.classList.add('tp');
+    banner.firstChild.textContent = `TP3 HIT — EXIT ${activeTrade.direction} `;
+    sub.textContent = `All targets reached at ${price.toFixed(3)}`;
+    activeTrade = null;
+    stats.style.display = 'none';
+    return;
+  }
+  if (reversed) {
+    fireAlert(`⚠️ Signal reversed — Exit ${activeTrade.direction}`, `${DISPLAY_NAME}: trend flipped before TP3, last ${price.toFixed(3)} (TP1 ${activeTrade.hit1?'hit':'missed'}, TP2 ${activeTrade.hit2?'hit':'missed'})`);
+    banner.classList.remove('buy','sell');
+    banner.classList.add('tp');
+    banner.firstChild.textContent = `EXIT — SIGNAL REVERSED `;
+    sub.textContent = `Trend flipped before TP3 · last ${price.toFixed(3)}`;
+    activeTrade = null;
+    stats.style.display = 'none';
+    return;
+  }
+
+  sub.textContent = `Last ${price.toFixed(3)} · holding ${activeTrade.direction}`;
 }
 
 setInterval(() => { if (ws && ws.readyState === WebSocket.OPEN && SYMBOL) fetchCandles(GRAN_H1, 200); }, H1_REFRESH_MS);
