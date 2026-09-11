@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Volatility Index — H1 Bias / M1 Sniper Entry</title>
+<title>Volatility Index — P.A.T. H1 Bias / M1 Sniper Entry</title>
 <style>
   :root{
     --bg:#050914;
@@ -39,10 +39,9 @@
   .status-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--red);margin-right:6px;box-shadow:0 0 6px currentColor;}
   .status-dot.live{background:var(--green);}
   .status-line{font-size:11px;color:var(--muted);margin-bottom:14px;}
-  .selector-row{display:flex;align-items:center;gap:10px;margin-bottom:18px;}
+  .selector-row{display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap;}
   .selector-row label{font-size:11px;letter-spacing:1px;color:var(--muted);white-space:nowrap;}
-  .selector-row select{
-    flex:1;
+  .selector-row select, .selector-row input{
     background:#0d1830;
     color:var(--cyan);
     border:1px solid var(--cyan-dim);
@@ -51,9 +50,13 @@
     font-family:'Courier New', monospace;
     font-size:13px;
   }
+  .selector-row select{flex:1;}
+  .selector-row input[type=number]{width:60px;}
   .section-label{font-size:12px;letter-spacing:2px;color:var(--cyan-dim);margin:18px 0 2px;}
   .price-row{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:4px;}
   .price-row span.val{color:var(--text);font-size:13px;}
+  .swing-row{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:2px;}
+  .swing-row span.val{color:var(--cyan-dim);}
   svg{display:block;margin:4px auto 0;}
   .needle{transition:transform 0.6s cubic-bezier(.4,1.4,.4,1);}
   .valLabel{transition:fill 0.4s;}
@@ -72,12 +75,7 @@
   }
   .sniper-banner.buy{border-color:var(--green);color:var(--green);box-shadow:0 0 20px rgba(61,220,132,0.25);background:rgba(61,220,132,0.06);}
   .sniper-banner.sell{border-color:var(--red);color:var(--red);box-shadow:0 0 20px rgba(255,77,77,0.25);background:rgba(255,77,77,0.06);}
-  .sniper-banner.tp{border-color:var(--amber);color:var(--amber);box-shadow:0 0 20px rgba(255,176,32,0.3);background:rgba(255,176,32,0.08);}
   .sniper-sub{font-size:10px;letter-spacing:1px;color:var(--muted);margin-top:6px;font-weight:normal;}
-  .sniper-stats{display:flex;justify-content:center;gap:36px;margin-top:12px;}
-  .stat-col{text-align:center;}
-  .stat-label{font-size:10px;letter-spacing:2px;color:var(--muted);margin-bottom:2px;}
-  .stat-value{font-size:24px;font-weight:bold;letter-spacing:1px;}
   .footer-note{font-size:10px;color:var(--muted);text-align:center;margin-top:14px;line-height:1.6;}
 </style>
 </head>
@@ -93,82 +91,59 @@
     <label for="symbolSelect">INSTRUMENT</label>
     <select id="symbolSelect" disabled><option>Loading…</option></select>
   </div>
-
-  <div class="selector-row" style="margin-bottom:16px;">
-    <label style="white-space:nowrap;">ALERTS</label>
-    <button id="notifyBtn" style="flex:1;background:#0d1830;color:var(--cyan);border:1px solid var(--cyan-dim);border-radius:6px;padding:8px 10px;font-family:'Courier New',monospace;font-size:12px;letter-spacing:1px;cursor:pointer;">🔔 ENABLE NOTIFICATIONS</button>
+  <div class="selector-row">
+    <label for="lookbackInput">SWING LOOKBACK</label>
+    <input type="number" id="lookbackInput" min="2" max="15" value="5">
+    <label style="margin-left:auto;">P.A.T. &mdash; PRICE ADVANCE TREND</label>
   </div>
 
-  <div class="tg-config" style="border:1px solid var(--cyan-dim);border-radius:8px;padding:12px;margin-bottom:16px;">
-    <div style="font-size:11px;letter-spacing:1px;color:var(--cyan-dim);margin-bottom:8px;">TELEGRAM ALERTS</div>
-    <div style="display:flex;flex-direction:column;gap:8px;">
-      <input type="text" id="tgToken" placeholder="Bot token (from @BotFather)" style="background:#0d1830;color:var(--text);border:1px solid var(--cyan-dim);border-radius:6px;padding:8px;font-family:'Courier New',monospace;font-size:12px;">
-      <input type="text" id="tgChatId" placeholder="Chat ID" style="background:#0d1830;color:var(--text);border:1px solid var(--cyan-dim);border-radius:6px;padding:8px;font-family:'Courier New',monospace;font-size:12px;">
-      <div style="display:flex;gap:8px;">
-        <button id="tgSaveBtn" style="flex:1;background:#0d1830;color:var(--cyan);border:1px solid var(--cyan-dim);border-radius:6px;padding:8px;font-family:'Courier New',monospace;font-size:11px;letter-spacing:1px;cursor:pointer;">SAVE</button>
-        <button id="tgTestBtn" style="flex:1;background:#0d1830;color:var(--cyan);border:1px solid var(--cyan-dim);border-radius:6px;padding:8px;font-family:'Courier New',monospace;font-size:11px;letter-spacing:1px;cursor:pointer;">SEND TEST</button>
-      </div>
-      <div id="tgStatus" style="font-size:10px;color:var(--muted);"></div>
-    </div>
-  </div>
-
-  <div class="section-label">H1 — TREND BIAS</div>
+  <div class="section-label">H1 — STRUCTURE / TREND BIAS</div>
   <div class="price-row"><span>Price</span><span class="val" id="h1Price">&mdash;</span></div>
-  <div class="price-row"><span>CCI(14) H1</span><span class="val" id="h1Cci">&mdash;</span></div>
+  <div class="swing-row"><span>Last Swing High</span><span class="val" id="h1SwingHigh">&mdash;</span></div>
+  <div class="swing-row"><span>Last Swing Low</span><span class="val" id="h1SwingLow">&mdash;</span></div>
   <svg width="100%" viewBox="0 0 680 300" role="img" aria-label="H1 bias gauge">
     <path d="M120,260 A220,220 0 0,1 162,131" fill="none" stroke="#7a1f1f" stroke-width="40"/>
     <path d="M162,131 A220,220 0 0,1 272,51"  fill="none" stroke="#7a4a15" stroke-width="40"/>
     <path d="M272,51  A220,220 0 0,1 408,51"  fill="none" stroke="#33465a" stroke-width="40"/>
     <path d="M408,51  A220,220 0 0,1 518,131" fill="none" stroke="#2f6b3a" stroke-width="40"/>
     <path d="M518,131 A220,220 0 0,1 560,260" fill="none" stroke="#1d4d26" stroke-width="40"/>
-    <text x="90" y="285" text-anchor="middle" fill="var(--muted)" font-size="11">SELL</text>
-    <text x="590" y="285" text-anchor="middle" fill="var(--muted)" font-size="11">BUY</text>
+    <text x="90" y="285" text-anchor="middle" fill="var(--muted)" font-size="11">BEARISH</text>
+    <text x="590" y="285" text-anchor="middle" fill="var(--muted)" font-size="11">BULLISH</text>
     <line id="h1Needle" class="needle" x1="340" y1="260" x2="130" y2="260" stroke="var(--cyan)" stroke-width="3" stroke-linecap="round" transform="rotate(90,340,260)" style="filter:drop-shadow(0 0 4px rgba(51,214,255,0.8));"/>
     <circle cx="340" cy="260" r="9" fill="var(--cyan)" style="filter:drop-shadow(0 0 4px rgba(51,214,255,0.8));"/>
-    <text id="h1ValLabel" class="valLabel" x="340" y="205" text-anchor="middle" fill="var(--cyan)" style="font-size:28px;font-family:'Courier New',monospace;">&mdash;</text>
+    <text id="h1ValLabel" class="valLabel" x="340" y="205" text-anchor="middle" fill="var(--cyan)" style="font-size:22px;font-family:'Courier New',monospace;">&mdash;</text>
     <text id="h1StatusLabel" x="340" y="228" text-anchor="middle" fill="var(--muted)" style="font-size:12px;letter-spacing:2px;font-family:'Courier New',monospace;">WAITING</text>
   </svg>
 
-  <div class="section-label">M1 — ENTRY TIMING</div>
+  <div class="section-label">M1 — BREAK OF STRUCTURE / ENTRY TIMING</div>
   <div class="price-row"><span>Price</span><span class="val" id="m1Price">&mdash;</span></div>
-  <div class="price-row"><span>CCI(14) M1</span><span class="val" id="m1Cci">&mdash;</span></div>
+  <div class="swing-row"><span>Last Swing High</span><span class="val" id="m1SwingHigh">&mdash;</span></div>
+  <div class="swing-row"><span>Last Swing Low</span><span class="val" id="m1SwingLow">&mdash;</span></div>
   <svg width="100%" viewBox="0 0 680 300" role="img" aria-label="M1 entry gauge">
     <path d="M120,260 A220,220 0 0,1 162,131" fill="none" stroke="#7a1f1f" stroke-width="40"/>
     <path d="M162,131 A220,220 0 0,1 272,51"  fill="none" stroke="#7a4a15" stroke-width="40"/>
     <path d="M272,51  A220,220 0 0,1 408,51"  fill="none" stroke="#33465a" stroke-width="40"/>
     <path d="M408,51  A220,220 0 0,1 518,131" fill="none" stroke="#2f6b3a" stroke-width="40"/>
     <path d="M518,131 A220,220 0 0,1 560,260" fill="none" stroke="#1d4d26" stroke-width="40"/>
-    <text x="90" y="285" text-anchor="middle" fill="var(--muted)" font-size="11">SELL</text>
-    <text x="590" y="285" text-anchor="middle" fill="var(--muted)" font-size="11">BUY</text>
+    <text x="90" y="285" text-anchor="middle" fill="var(--muted)" font-size="11">BEARISH</text>
+    <text x="590" y="285" text-anchor="middle" fill="var(--muted)" font-size="11">BULLISH</text>
     <line id="m1Needle" class="needle" x1="340" y1="260" x2="130" y2="260" stroke="var(--cyan)" stroke-width="3" stroke-linecap="round" transform="rotate(90,340,260)" style="filter:drop-shadow(0 0 4px rgba(51,214,255,0.8));"/>
     <circle cx="340" cy="260" r="9" fill="var(--cyan)" style="filter:drop-shadow(0 0 4px rgba(51,214,255,0.8));"/>
-    <text id="m1ValLabel" class="valLabel" x="340" y="205" text-anchor="middle" fill="var(--cyan)" style="font-size:28px;font-family:'Courier New',monospace;">&mdash;</text>
+    <text id="m1ValLabel" class="valLabel" x="340" y="205" text-anchor="middle" fill="var(--cyan)" style="font-size:22px;font-family:'Courier New',monospace;">&mdash;</text>
     <text id="m1StatusLabel" x="340" y="228" text-anchor="middle" fill="var(--muted)" style="font-size:12px;letter-spacing:2px;font-family:'Courier New',monospace;">WAITING</text>
   </svg>
 
-  <div class="tp-row" style="display:flex;align-items:center;gap:10px;margin-top:14px;">
-    <label for="tpMultInput" style="font-size:11px;letter-spacing:1px;color:var(--muted);white-space:nowrap;">TP DISTANCE (&times; ATR M1)</label>
-    <input type="number" id="tpMultInput" value="2" min="0.5" max="10" step="0.5" style="width:64px;background:#0d1830;color:var(--cyan);border:1px solid var(--cyan-dim);border-radius:6px;padding:6px 8px;font-family:'Courier New',monospace;font-size:13px;">
-  </div>
-
   <div class="sniper-banner" id="sniperBanner">
     NO ALIGNMENT &mdash; WAIT
-    <div class="sniper-stats" id="sniperStats" style="display:none;">
-      <div class="stat-col"><div class="stat-label">ENTRY</div><div class="stat-value" id="entryStat">&mdash;</div></div>
-      <div class="stat-col"><div class="stat-label">TP</div><div class="stat-value" id="tpStat">&mdash;</div></div>
-    </div>
     <div class="sniper-sub">H1 trend and M1 timing are not agreeing</div>
   </div>
 
   <div class="footer-note">
-    Bias/entry = CCI(14), mapped to a 0&ndash;100 scale. &ge;60 buy zone &middot; &le;40 sell zone &middot; else neutral.<br>
-    Sniper entry fires when H1 (trend) and M1 (timing) land in the same zone; TP = entry &plusmn; (ATR(14) on M1 &times; multiplier).<br>
-    Exit is flagged either when TP is hit, or if the signal reverses before TP.<br>
-    Instrument list is pulled live from Deriv &mdash; every Volatility Index they currently offer will show up here.<br><br>
-    <strong>Telegram setup:</strong> message @BotFather on Telegram, send /newbot, paste the token above.
-    Then message your new bot anything, open
-    <span style="word-break:break-all;">api.telegram.org/bot&lt;TOKEN&gt;/getUpdates</span>
-    in a browser and copy the "chat":"id" number into Chat ID above. Tap SAVE, then SEND TEST.
+    P.A.T. = Price Advance Trend (market-structure trading).<br>
+    H1 gauge = current swing-structure state (Higher-High/Higher-Low = bullish, Lower-High/Lower-Low = bearish), fading toward neutral the longer since the last confirmed break.<br>
+    M1 gauge = a fresh Break of Structure on the M1 chart, hottest right at the break and decaying back to neutral within ~8 bars if nothing follows through.<br>
+    Sniper entry fires only when the H1 trend and a still-fresh M1 break agree on direction. Swing points use a &ldquo;SWING LOOKBACK&rdquo;-bar fractal (bars needed on each side to confirm a high/low).<br>
+    Instrument list is pulled live from Deriv. This is a monitoring/research display only — it does not place trades. Validate any strategy in the MT5 Strategy Tester before risking real funds.
   </div>
 </div>
 
@@ -176,8 +151,9 @@
 const APP_ID = 1089;
 const GRAN_H1 = 3600;
 const GRAN_M1 = 60;
-const CCI_PERIOD = 14;
 const H1_REFRESH_MS = 5 * 60 * 1000;
+const H1_DECAY_PER_BAR = 1.5;   // how fast the H1 bias fades toward neutral per bar since the break
+const M1_DECAY_PER_BAR = 4.5;   // faster fade for M1 timing so it behaves like a "fresh trigger"
 
 let ws;
 let SYMBOL = null;
@@ -188,10 +164,7 @@ let subscribedTicks = false;
 let h1Zone = 'NEUTRAL';
 let m1Zone = 'NEUTRAL';
 let dataReceived = false;
-let symbolListLoaded = false;
-let symbolListTimeout = null;
-let activeTrade = null; // { direction: 'BUY'|'SELL', entryPrice, tpPrice }
-let tpMultiplier = 2;
+let lookback = 5;
 
 const FALLBACK_SYMBOLS = [
   { symbol: 'R_10',    display_name: 'Volatility 10 Index' },
@@ -214,13 +187,20 @@ const statusText = document.getElementById('statusText');
 const symbolSelect = document.getElementById('symbolSelect');
 const mainTitle = document.getElementById('mainTitle');
 const subLine = document.getElementById('subLine');
+const lookbackInput = document.getElementById('lookbackInput');
+
+lookbackInput.addEventListener('change', () => {
+  const v = parseInt(lookbackInput.value, 10);
+  lookback = Number.isFinite(v) && v >= 2 ? Math.min(15, v) : 5;
+  recomputeH1();
+  recomputeM1();
+});
 
 function setConnState(live, label){
   statusDot.classList.toggle('live', live);
   statusText.textContent = label;
 }
 
-// Populate the dropdown and pick a default instantly — no waiting on the network for this.
 initialSymbolSetup(FALLBACK_SYMBOLS);
 
 function connect(){
@@ -320,15 +300,14 @@ function sortVolList(symbols){
 function initialSymbolSetup(symbols){
   const vols = sortVolList(symbols);
   buildDropdownOptions(vols);
-  symbolListLoaded = true;
 
   const preferred = vols.find(v => v.symbol === '1HZ90V') || vols[0];
   if (preferred) {
     symbolSelect.value = preferred.symbol;
     SYMBOL = preferred.symbol;
     DISPLAY_NAME = preferred.name;
-    mainTitle.textContent = `${DISPLAY_NAME} — H1 BIAS / M1 SNIPER`;
-    subLine.textContent = `${DISPLAY_NAME} · CCI(14) on H1 for trend, CCI(14) on M1 for entry timing`;
+    mainTitle.textContent = `${DISPLAY_NAME} — H1 BIAS / M1 SNIPER (P.A.T.)`;
+    subLine.textContent = `${DISPLAY_NAME} · Market structure on H1 for trend, break-of-structure on M1 for entry timing`;
   }
 }
 
@@ -355,8 +334,8 @@ symbolSelect.addEventListener('change', () => {
 });
 
 function loadSymbol(sym){
-  mainTitle.textContent = `${DISPLAY_NAME} — H1 BIAS / M1 SNIPER`;
-  subLine.textContent = `${DISPLAY_NAME} · CCI(14) on H1 for trend, CCI(14) on M1 for entry timing`;
+  mainTitle.textContent = `${DISPLAY_NAME} — H1 BIAS / M1 SNIPER (P.A.T.)`;
+  subLine.textContent = `${DISPLAY_NAME} · Market structure on H1 for trend, break-of-structure on M1 for entry timing`;
 
   if (subscribedTicks) ws.send(JSON.stringify({ forget_all: "ticks" }));
   subscribedTicks = false;
@@ -365,12 +344,13 @@ function loadSymbol(sym){
   m1Candles = [];
   h1Zone = 'NEUTRAL';
   m1Zone = 'NEUTRAL';
-  activeTrade = null;
   updateSniper();
   document.getElementById('h1Price').textContent = '—';
-  document.getElementById('h1Cci').textContent = '—';
+  document.getElementById('h1SwingHigh').textContent = '—';
+  document.getElementById('h1SwingLow').textContent = '—';
   document.getElementById('m1Price').textContent = '—';
-  document.getElementById('m1Cci').textContent = '—';
+  document.getElementById('m1SwingHigh').textContent = '—';
+  document.getElementById('m1SwingLow').textContent = '—';
   setConnState(false, 'loading ' + sym);
 
   fetchCandles(GRAN_H1, 200);
@@ -388,129 +368,59 @@ function fetchCandles(granularity, count){
   }));
 }
 
-function computeCCI(candles, period){
-  if (candles.length < period) return null;
-  const slice = candles.slice(-period);
-  const tps = slice.map(c => (c.high + c.low + c.close) / 3);
-  const sma = tps.reduce((a,b) => a+b, 0) / period;
-  const meanDev = tps.reduce((a,b) => a + Math.abs(b - sma), 0) / period;
-  if (meanDev === 0) return 0;
-  return (tps[tps.length - 1] - sma) / (0.015 * meanDev);
-}
+//------------------------------------------------------------------
+// P.A.T. structure engine: fractal swing detection + break-of-structure
+//------------------------------------------------------------------
+function computeStructure(candles, lb){
+  const n = candles.length;
+  if (n < lb * 2 + 3) return { state: 0, barsSinceBos: 999, lastSwingHigh: null, lastSwingLow: null };
 
-function computeATR(candles, period){
-  if (candles.length < period + 1) return null;
-  const trs = [];
-  for (let i = candles.length - period; i < candles.length; i++){
-    const c = candles[i], prev = candles[i - 1];
-    trs.push(Math.max(c.high - c.low, Math.abs(c.high - prev.close), Math.abs(c.low - prev.close)));
-  }
-  return trs.reduce((a,b) => a+b, 0) / period;
-}
-
-document.getElementById('tpMultInput').addEventListener('input', (e) => {
-  const v = parseFloat(e.target.value);
-  if (!isNaN(v) && v > 0) tpMultiplier = v;
-});
-
-const notifyBtn = document.getElementById('notifyBtn');
-
-function refreshNotifyBtn(){
-  if (!('Notification' in window)) {
-    notifyBtn.textContent = '🔕 NOT SUPPORTED — ADD TO HOME SCREEN (iOS)';
-    notifyBtn.disabled = true;
-    return;
-  }
-  if (Notification.permission === 'granted') {
-    notifyBtn.textContent = '✅ NOTIFICATIONS ON';
-  } else if (Notification.permission === 'denied') {
-    notifyBtn.textContent = '🔕 BLOCKED — ENABLE IN BROWSER SETTINGS';
-  } else {
-    notifyBtn.textContent = '🔔 ENABLE NOTIFICATIONS';
-  }
-}
-
-notifyBtn.addEventListener('click', () => {
-  if (!('Notification' in window)) return;
-  if (Notification.permission === 'default') {
-    Notification.requestPermission().then(refreshNotifyBtn);
-  }
-});
-
-refreshNotifyBtn();
-
-let audioCtx = null;
-function playBeep(){
-  try {
-    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
-    const o = audioCtx.createOscillator();
-    const g = audioCtx.createGain();
-    o.connect(g); g.connect(audioCtx.destination);
-    o.frequency.value = 880;
-    g.gain.setValueAtTime(0.15, audioCtx.currentTime);
-    o.start();
-    o.stop(audioCtx.currentTime + 0.18);
-  } catch (e) {}
-}
-
-function fireAlert(title, body){
-  playBeep();
-  if ('Notification' in window && Notification.permission === 'granted') {
-    try { new Notification(title, { body }); } catch (e) { console.warn('Notification failed:', e); }
-  }
-  sendTelegram(`${title}\n${body}`);
-}
-
-const tgToken = document.getElementById('tgToken');
-const tgChatId = document.getElementById('tgChatId');
-const tgStatus = document.getElementById('tgStatus');
-
-tgToken.value = localStorage.getItem('tg_token') || '';
-tgChatId.value = localStorage.getItem('tg_chat_id') || '';
-
-document.getElementById('tgSaveBtn').addEventListener('click', () => {
-  localStorage.setItem('tg_token', tgToken.value.trim());
-  localStorage.setItem('tg_chat_id', tgChatId.value.trim());
-  tgStatus.textContent = 'Saved.';
-  tgStatus.style.color = 'var(--green)';
-});
-
-document.getElementById('tgTestBtn').addEventListener('click', () => {
-  sendTelegram('✅ Test alert from your Volatility dashboard.');
-});
-
-function sendTelegram(text){
-  const token = (tgToken.value || localStorage.getItem('tg_token') || '').trim();
-  const chatId = (tgChatId.value || localStorage.getItem('tg_chat_id') || '').trim();
-  if (!token || !chatId) {
-    tgStatus.textContent = 'Add a bot token and chat ID first.';
-    tgStatus.style.color = 'var(--amber)';
-    return;
-  }
-  fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ chat_id: chatId, text })
-  })
-  .then(r => r.json())
-  .then(data => {
-    if (data.ok) {
-      tgStatus.textContent = 'Sent ✓';
-      tgStatus.style.color = 'var(--green)';
-    } else {
-      tgStatus.textContent = 'Telegram error: ' + (data.description || 'unknown');
-      tgStatus.style.color = 'var(--red)';
+  // Find fractal swing points; each is only "known" (confirmed) lb bars after it forms.
+  const swings = [];
+  for (let i = lb; i < n - lb; i++) {
+    let isHigh = true, isLow = true;
+    for (let k = 1; k <= lb; k++) {
+      if (candles[i].high <= candles[i - k].high || candles[i].high <= candles[i + k].high) isHigh = false;
+      if (candles[i].low  >= candles[i - k].low  || candles[i].low  >= candles[i + k].low)  isLow = false;
+      if (!isHigh && !isLow) break;
     }
-  })
-  .catch(err => {
-    tgStatus.textContent = 'Send failed: ' + err.message;
-    tgStatus.style.color = 'var(--red)';
-  });
+    if (isHigh) swings.push({ confirmedAt: i + lb, type: 'H', price: candles[i].high });
+    if (isLow)  swings.push({ confirmedAt: i + lb, type: 'L', price: candles[i].low });
+  }
+  swings.sort((a, b) => a.confirmedAt - b.confirmedAt);
+
+  let lastSwingHigh = null, lastSwingLow = null;
+  let state = 0;
+  let lastBosIndex = -1;
+  let ptr = 0;
+
+  for (let i = 0; i < n; i++) {
+    while (ptr < swings.length && swings[ptr].confirmedAt <= i) {
+      const s = swings[ptr];
+      if (s.type === 'H') lastSwingHigh = s.price; else lastSwingLow = s.price;
+      ptr++;
+    }
+    if (i > 0) {
+      const c = candles[i].close;
+      if (lastSwingLow !== null && c < lastSwingLow && state !== -1) {
+        state = -1;
+        lastBosIndex = i;
+      } else if (lastSwingHigh !== null && c > lastSwingHigh && state !== 1) {
+        state = 1;
+        lastBosIndex = i;
+      }
+    }
+  }
+
+  const barsSinceBos = lastBosIndex === -1 ? 999 : (n - 1 - lastBosIndex);
+  return { state, barsSinceBos, lastSwingHigh, lastSwingLow };
 }
 
-function cciToValue(cci){
-  const clamped = Math.max(-200, Math.min(200, cci));
-  return ((clamped + 200) / 400) * 100;
+function structureToValue(res, decayPerBar){
+  if (!res || res.state === 0) return 50;
+  const bars = Math.min(res.barsSinceBos, 100);
+  if (res.state === 1) return Math.max(50, 92 - decayPerBar * bars);
+  return Math.min(50, 8 + decayPerBar * bars);
 }
 
 function zoneOf(value){
@@ -519,19 +429,17 @@ function zoneOf(value){
   return 'NEUTRAL';
 }
 
-function labelAndColor(value){
-  if (value >= 80) return ['STRONG BUY', '#3ddc84'];
-  if (value >= 60) return ['BUY', '#7be0a0'];
-  if (value >= 40) return ['NEUTRAL', '#5f7d92'];
-  if (value >= 20) return ['SELL', '#ffb020'];
-  return ['STRONG SELL', '#ff4d4d'];
+function labelAndColor(value, res){
+  if (!res || res.state === 0) return ['NO STRUCTURE', '#5f7d92'];
+  if (res.state === 1) return value >= 75 ? ['BULLISH BOS', '#3ddc84'] : ['BULLISH (AGING)', '#7be0a0'];
+  return value <= 25 ? ['BEARISH BOS', '#ff4d4d'] : ['BEARISH (AGING)', '#ffb020'];
 }
 
-function updateGaugeVisual(prefix, value){
+function updateGaugeVisual(prefix, value, res){
   const deg = (value / 100) * 180;
   document.getElementById(prefix + 'Needle').setAttribute('transform', `rotate(${deg},340,260)`);
   document.getElementById(prefix + 'ValLabel').textContent = Math.round(value);
-  const [label, color] = labelAndColor(value);
+  const [label, color] = labelAndColor(value, res);
   const statusEl = document.getElementById(prefix + 'StatusLabel');
   statusEl.textContent = label;
   statusEl.setAttribute('fill', color);
@@ -541,11 +449,12 @@ function updateGaugeVisual(prefix, value){
 function recomputeH1(){
   const price = h1Candles[h1Candles.length - 1]?.close;
   if (price !== undefined) document.getElementById('h1Price').textContent = price.toFixed(3);
-  const cci = computeCCI(h1Candles, CCI_PERIOD);
-  if (cci === null) return;
-  document.getElementById('h1Cci').textContent = cci.toFixed(1);
-  const value = cciToValue(cci);
-  updateGaugeVisual('h1', value);
+  const res = computeStructure(h1Candles, lookback);
+  document.getElementById('h1SwingHigh').textContent = res.lastSwingHigh !== null ? res.lastSwingHigh.toFixed(3) : '—';
+  document.getElementById('h1SwingLow').textContent  = res.lastSwingLow  !== null ? res.lastSwingLow.toFixed(3)  : '—';
+  if (h1Candles.length < lookback * 2 + 3) return;
+  const value = structureToValue(res, H1_DECAY_PER_BAR);
+  updateGaugeVisual('h1', value, res);
   h1Zone = zoneOf(value);
   updateSniper();
 }
@@ -553,11 +462,12 @@ function recomputeH1(){
 function recomputeM1(){
   const price = m1Candles[m1Candles.length - 1]?.close;
   if (price !== undefined) document.getElementById('m1Price').textContent = price.toFixed(3);
-  const cci = computeCCI(m1Candles, CCI_PERIOD);
-  if (cci === null) return;
-  document.getElementById('m1Cci').textContent = cci.toFixed(1);
-  const value = cciToValue(cci);
-  updateGaugeVisual('m1', value);
+  const res = computeStructure(m1Candles, lookback);
+  document.getElementById('m1SwingHigh').textContent = res.lastSwingHigh !== null ? res.lastSwingHigh.toFixed(3) : '—';
+  document.getElementById('m1SwingLow').textContent  = res.lastSwingLow  !== null ? res.lastSwingLow.toFixed(3)  : '—';
+  if (m1Candles.length < lookback * 2 + 3) return;
+  const value = structureToValue(res, M1_DECAY_PER_BAR);
+  updateGaugeVisual('m1', value, res);
   m1Zone = zoneOf(value);
   updateSniper();
 }
@@ -565,66 +475,19 @@ function recomputeM1(){
 function updateSniper(){
   const banner = document.getElementById('sniperBanner');
   const sub = banner.querySelector('.sniper-sub');
-  const stats = document.getElementById('sniperStats');
-  const entryStat = document.getElementById('entryStat');
-  const tpStat = document.getElementById('tpStat');
-  banner.classList.remove('buy', 'sell', 'tp');
-
-  const aligned = (h1Zone === m1Zone) && h1Zone !== 'NEUTRAL';
-  const direction = aligned ? h1Zone : null;
-  const price = m1Candles[m1Candles.length - 1]?.close;
-
-  if (activeTrade) {
-    if (price === undefined) return;
-    const hitTP = activeTrade.direction === 'BUY' ? price >= activeTrade.tpPrice : price <= activeTrade.tpPrice;
-    const reversed = aligned && direction !== activeTrade.direction;
-
-    stats.style.display = 'flex';
-    entryStat.textContent = activeTrade.entryPrice.toFixed(3);
-    tpStat.textContent = activeTrade.tpPrice.toFixed(3);
-
-    if (hitTP) {
-      banner.classList.add('tp');
-      banner.firstChild.textContent = `TP HIT — EXIT ${activeTrade.direction} `;
-      sub.textContent = `TP reached at ${price.toFixed(3)}`;
-      fireAlert(`✅ TP HIT — Exit ${activeTrade.direction}`, `${DISPLAY_NAME}: TP reached at ${price.toFixed(3)}`);
-      activeTrade = null;
-      return;
-    }
-    if (reversed) {
-      banner.classList.add('tp');
-      banner.firstChild.textContent = `EXIT — SIGNAL REVERSED `;
-      sub.textContent = `Trend flipped before TP · last ${price.toFixed(3)}`;
-      fireAlert(`⚠️ Signal reversed — Exit ${activeTrade.direction}`, `${DISPLAY_NAME}: trend flipped before TP, last ${price.toFixed(3)}`);
-      activeTrade = null;
-      return;
-    }
-    banner.classList.add(activeTrade.direction === 'BUY' ? 'buy' : 'sell');
-    banner.firstChild.textContent = `HOLDING ${activeTrade.direction} — WAIT FOR TP `;
-    sub.textContent = `Last ${price.toFixed(3)}`;
-    return;
+  banner.classList.remove('buy', 'sell');
+  if (h1Zone === 'BUY' && m1Zone === 'BUY') {
+    banner.classList.add('buy');
+    banner.firstChild.textContent = 'SNIPER ENTRY: BUY ';
+    sub.textContent = 'H1 bullish structure + fresh M1 bullish break';
+  } else if (h1Zone === 'SELL' && m1Zone === 'SELL') {
+    banner.classList.add('sell');
+    banner.firstChild.textContent = 'SNIPER ENTRY: SELL ';
+    sub.textContent = 'H1 bearish structure + fresh M1 bearish break';
+  } else {
+    banner.firstChild.textContent = 'NO ALIGNMENT — WAIT ';
+    sub.textContent = 'H1 trend and M1 timing are not agreeing';
   }
-
-  if (aligned && price !== undefined) {
-    const atr = computeATR(m1Candles, CCI_PERIOD);
-    if (atr) {
-      const dist = atr * tpMultiplier;
-      const tp = direction === 'BUY' ? price + dist : price - dist;
-      activeTrade = { direction, entryPrice: price, tpPrice: tp };
-      banner.classList.add(direction === 'BUY' ? 'buy' : 'sell');
-      banner.firstChild.textContent = `SNIPER ENTRY: ${direction} `;
-      stats.style.display = 'flex';
-      entryStat.textContent = price.toFixed(3);
-      tpStat.textContent = tp.toFixed(3);
-      sub.textContent = `${tpMultiplier}× ATR M1`;
-      fireAlert(`🎯 SNIPER ENTRY: ${direction}`, `${DISPLAY_NAME}: entry ${price.toFixed(3)} · TP ${tp.toFixed(3)} (${tpMultiplier}× ATR M1)`);
-      return;
-    }
-  }
-
-  stats.style.display = 'none';
-  banner.firstChild.textContent = 'NO ALIGNMENT — WAIT ';
-  sub.textContent = 'H1 trend and M1 timing are not agreeing';
 }
 
 setInterval(() => { if (ws && ws.readyState === WebSocket.OPEN && SYMBOL) fetchCandles(GRAN_H1, 200); }, H1_REFRESH_MS);
