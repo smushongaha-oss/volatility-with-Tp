@@ -1,0 +1,50 @@
+name: Strategy Backtest
+
+on:
+  workflow_dispatch:
+    inputs:
+      symbol:
+        description: 'Instrument to backtest'
+        required: false
+        default: '1HZ90V'
+      history_days:
+        description: 'How many days of M1 history to test'
+        required: false
+        default: '30'
+      lookback:
+        description: 'Swing lookback (fractal bars each side)'
+        required: false
+        default: '5'
+      tp_step:
+        description: 'TP step multiplier (x ATR M1)'
+        required: false
+        default: '1'
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install deps
+        run: npm install ws
+
+      - name: Run backtest
+        env:
+          SYMBOL: ${{ github.event.inputs.symbol }}
+          HISTORY_DAYS: ${{ github.event.inputs.history_days }}
+          LOOKBACK: ${{ github.event.inputs.lookback }}
+          TP_STEP: ${{ github.event.inputs.tp_step }}
+        run: node backtest.mjs
+
+      - name: Commit results
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add backtest_results.json backtest_trades.csv
+          git commit -m "Backtest run: ${{ github.event.inputs.symbol }} (${{ github.event.inputs.history_days }}d) [skip ci]" || echo "No changes to commit"
+          git push
