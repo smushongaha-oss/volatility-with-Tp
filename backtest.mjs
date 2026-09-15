@@ -1,4 +1,3 @@
-// backtest.mjs
 // Usage: node backtest.mjs
 // Config via env vars (all optional, shown with defaults):
 //   SYMBOL=1HZ90V  LOOKBACK=5  TP_STEP=1  ATR_PERIOD=14
@@ -120,6 +119,16 @@ async function main() {
   let lastH1Epoch = -1;
   let cachedH1Zone = 'NEUTRAL';
 
+  // Diagnostics: track exactly where the funnel bottlenecks
+  const diag = {
+    barsProcessed: 0,
+    h1BuyBars: 0, h1SellBars: 0, h1NeutralBars: 0,
+    freshM1Breaks: 0, freshBreaksMatchingH1: 0,
+    pendingBarsTotal: 0, zonesComputedCount: 0, confirmationChecks: 0,
+    maxPendingStreak: 0
+  };
+  let currentPendingStreak = 0;
+
   for (let i = WINDOW; i < m1All.length; i++) {
     const windowSlice = m1All.slice(i - WINDOW, i + 1);
     const currentEpoch = m1All[i].epoch;
@@ -129,6 +138,10 @@ async function main() {
       lastH1Epoch = currentH1Epoch;
     }
     const h1Zone = cachedH1Zone;
+    diag.barsProcessed++;
+    if (h1Zone === 'BUY') diag.h1BuyBars++;
+    else if (h1Zone === 'SELL') diag.h1SellBars++;
+    else diag.h1NeutralBars++;
 
     const atr = computeATR(windowSlice, ATR_PERIOD);
     const m1res = computeStructure(windowSlice, LOOKBACK, atr);
@@ -167,18 +180,31 @@ async function main() {
     const isFreshBreak = m1res.barsSinceBos === 0 && m1res.breakType !== null;
     const m1Direction = m1res.state === 1 ? 'BUY' : m1res.state === -1 ? 'SELL' : null;
 
+    if (isFreshBreak) diag.freshM1Breaks++;
+
     if (isFreshBreak && m1Direction && h1Zone === m1Direction) {
+      diag.freshBreaksMatchingH1++;
       pendingSetup = { direction: m1Direction, breakType: m1res.breakType, sweep: m1res.sweep };
     } else if (pendingSetup) {
       if (h1Zone !== pendingSetup.direction) pendingSetup = null;
       else if (m1Direction && m1Direction !== pendingSetup.direction) pendingSetup = null;
     }
 
+    if (pendingSetup) {
+      diag.pendingBarsTotal++;
+      currentPendingStreak++;
+      diag.maxPendingStreak = Math.max(diag.maxPendingStreak, currentPendingStreak);
+    } else {
+      currentPendingStreak = 0;
+    }
+
     if (pendingSetup && atr) {
       const closedCandle = windowSlice.length >= 2 ? windowSlice[windowSlice.length - 2] : null;
       const zones = getCandidateZones(pendingSetup.direction, m1res, atr, localIdx);
+      diag.zonesComputedCount += zones.length;
       let triggeredZone = null;
       for (const z of zones) {
+        diag.confirmationChecks++;
         if (isConfirmationCandle(closedCandle, pendingSetup.direction, z.low, z.high, atr)) { triggeredZone = z; break; }
       }
       if (triggeredZone) {
@@ -196,6 +222,18 @@ async function main() {
       }
     }
   }
+
+  console.log('\n========== FUNNEL DIAGNOSTICS ==========');
+  console.log(`M1 bars processed: ${diag.barsProcessed}`);
+  console.log(`H1 zone distribution: BUY=${diag.h1BuyBars} (${(diag.h1BuyBars/diag.barsProcessed*100).toFixed(1)}%)  SELL=${diag.h1SellBars} (${(diag.h1SellBars/diag.barsProcessed*100).toFixed(1)}%)  NEUTRAL=${diag.h1NeutralBars} (${(diag.h1NeutralBars/diag.barsProcessed*100).toFixed(1)}%)`);
+  console.log(`Fresh M1 breaks (any direction): ${diag.freshM1Breaks}`);
+  console.log(`Fresh M1 breaks matching H1 direction (setups armed): ${diag.freshBreaksMatchingH1}`);
+  console.log(`Total bars spent in an armed/pending state: ${diag.pendingBarsTotal}`);
+  console.log(`Longest single armed streak: ${diag.maxPendingStreak} bars`);
+  console.log(`Retest zones computed while armed: ${diag.zonesComputedCount}`);
+  console.log(`Confirmation-candle checks performed: ${diag.confirmationChecks}`);
+  console.log(`Signals actually triggered: ${trades.length}`);
+  console.log('==========================================\n');
 
   // If a trade was still open at the end of the data, close it out at last known price for scoring purposes.
   if (activeTrade) {
