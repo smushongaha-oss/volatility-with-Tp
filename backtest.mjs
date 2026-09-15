@@ -49,19 +49,28 @@ function mapCandles(raw) {
 async function fetchHistory(ws, symbol, granularity, totalNeeded) {
   let all = [];
   let end = 'latest';
+  let lastOldestEpoch = null;
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
   while (all.length < totalNeeded) {
-    const count = Math.min(5000, totalNeeded - all.length + 5); // small buffer
+    const count = Math.min(5000, totalNeeded - all.length + 5);
     const data = await call(ws, {
-      ticks_history: symbol, adjust_start_time: 1, count, end,
+      ticks_history: symbol, count, end,
       granularity, style: 'candles'
     });
     const batch = mapCandles(data.candles);
     if (!batch.length) break;
-    all = batch.concat(all.filter(c => c.epoch < batch[0].epoch));
-    end = batch[0].epoch - granularity;
-    console.log(`  fetched ${batch.length} candles, total so far: ${all.length}`);
+
+    const oldestEpoch = batch[0].epoch;
+    if (lastOldestEpoch !== null && oldestEpoch >= lastOldestEpoch) {
+      console.warn(`  WARNING: pagination stuck (no older data returned, still at epoch ${oldestEpoch}). Stopping early with ${all.length} candles instead of the requested ${totalNeeded}.`);
+      break;
+    }
+    lastOldestEpoch = oldestEpoch;
+
+    all = batch.concat(all.filter(c => c.epoch < oldestEpoch));
+    end = oldestEpoch - granularity;
+    console.log(`  fetched ${batch.length} candles (oldest: ${new Date(oldestEpoch * 1000).toISOString()}), total so far: ${all.length}`);
     if (batch.length < count) break; // hit the beginning of available history
     await sleep(400); // be polite to the shared demo app_id
   }
