@@ -111,7 +111,7 @@ entryEpoch,direction,zoneType,breakType,sweep,entryPrice,exit,exitPrice,hit1,hit
 1788707760,BUY,OTE,BOS,false,17871.1120,TP3,17997.4390,true,true,true,3.504
 1788708840,BUY,Broken level,BOS,false,18003.1420,REVERSED,17106.6110,true,false,false,-28.350
 1788953160,SELL,OTE,BOS,false,17060.9820,TP3,16962.6350,true,true,true,3.096
-1788957120,SELL,OTE,CHOCH,false,16959.2920,REVERSED,17426.7930,true,false,false,-14.660
+1788957120,SELL,OTE,CHOCH,false,16959.2920,REVERSED,17426.7930,true,false,false,-15.703
 1788974040,BUY,OTE,BOS,true,17533.1910,TP3,17669.5620,true,true,true,4.038
 1788979320,BUY,Broken level,CHOCH,true,17687.8400,REVERSED,16726.9830,true,true,false,-34.144
 1789015440,SELL,OTE,CHOCH,false,16846.2530,TP3,16757.6840,true,true,true,3.349
@@ -154,4 +154,4 @@ entryEpoch,direction,zoneType,breakType,sweep,entryPrice,exit,exitPrice,hit1,hit
 1789517400,BUY,OTE,CHOCH,true,17982.5140,TP3,18109.9250,true,true,true,3.940
 1789524780,BUY,Trendline,BOS,false,18033.3710,TP3,18132.0280,true,true,true,3.092
 1789525980,BUY,OTE,BOS,false,18144.2930,TP3,18248.8000,true,true,true,3.113
-1789534200,BUY,OTE,CHOCH,false,17757.0340,END_OF_DATA,17353.2540,false,false,false,-13.560
+1789534200,BUY,OTE,CHOCH,false,17757.0340,END_OF_DATA,17623.3660,false,false,false,-4.489
