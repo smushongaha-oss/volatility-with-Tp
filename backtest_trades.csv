@@ -154,4 +154,4 @@ entryEpoch,direction,zoneType,breakType,sweep,entryPrice,exit,exitPrice,hit1,hit
 1789517400,BUY,OTE,CHOCH,true,17982.5140,TP3,18109.9250,true,true,true,3.940
 1789524780,BUY,Trendline,BOS,false,18033.3710,TP3,18132.0280,true,true,true,3.092
 1789525980,BUY,OTE,BOS,false,18144.2930,TP3,18248.8000,true,true,true,3.113
-1789534200,BUY,OTE,CHOCH,false,17757.0340,END_OF_DATA,17600.8270,false,false,false,-5.246
+1789534200,BUY,OTE,CHOCH,false,17757.0340,END_OF_DATA,17571.4710,false,false,false,-6.232
