@@ -5,7 +5,7 @@
   "tpStep": 1,
   "totalSignals": 156,
   "winRate": 96.15384615384616,
-  "avgR": 0.4253956442996116,
+  "avgR": 0.37406860045317614,
   "byZoneType": [
     {
       "zoneType": "Broken level",
@@ -17,7 +17,7 @@
       "zoneType": "OTE",
       "count": 78,
       "winRate": "93.6%",
-      "avgR": "-0.08"
+      "avgR": "-0.18"
     },
     {
       "zoneType": "Trendline",
@@ -31,7 +31,7 @@
       "breakType": "CHOCH",
       "count": 59,
       "winRate": "94.9%",
-      "avgR": "0.15"
+      "avgR": "0.01"
     },
     {
       "breakType": "BOS",
@@ -45,7 +45,7 @@
       "sweep": "false",
       "count": 137,
       "winRate": "95.6%",
-      "avgR": "0.25"
+      "avgR": "0.19"
     },
     {
       "sweep": "true",
