@@ -62,13 +62,16 @@ async function fetchHistory(ws, symbol, granularity, totalNeeded) {
     if (!batch.length) break;
 
     const oldestEpoch = batch[0].epoch;
+    const newestEpoch = batch[batch.length - 1].epoch;
     if (lastOldestEpoch !== null && oldestEpoch >= lastOldestEpoch) {
       console.warn(`  WARNING: pagination stuck (no older data returned, still at epoch ${oldestEpoch}). Stopping early with ${all.length} candles instead of the requested ${totalNeeded}.`);
       break;
     }
     lastOldestEpoch = oldestEpoch;
 
-    all = batch.concat(all.filter(c => c.epoch < oldestEpoch));
+    // Keep only previously-fetched candles that are strictly newer than this batch's newest point,
+    // to avoid duplication at the boundary, then prepend this (older) batch.
+    all = batch.concat(all.filter(c => c.epoch > newestEpoch));
     end = oldestEpoch - granularity;
     console.log(`  fetched ${batch.length} candles (oldest: ${new Date(oldestEpoch * 1000).toISOString()}), total so far: ${all.length}`);
     if (batch.length < count) break; // hit the beginning of available history
