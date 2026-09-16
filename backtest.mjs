@@ -264,11 +264,18 @@ async function main() {
     return gain / risk;
   }
 
-  const scored = trades.map(t => ({ ...t, r: rMultiple(t) }));
+  const scored = trades.map(t => ({ ...t, r: rMultiple(t), riskUnit: Math.abs(t.tp1 - t.entryPrice) }));
   const wins = scored.filter(t => t.hit1);
   const total = scored.length;
   const winRate = total ? (wins.length / total * 100) : 0;
   const avgR = total ? (scored.reduce((a, t) => a + t.r, 0) / total) : 0;
+
+  const sortedByR = [...scored].sort((a, b) => a.r - b.r);
+  const medianR = total ? (total % 2 === 1 ? sortedByR[(total - 1) / 2].r : (sortedByR[total / 2 - 1].r + sortedByR[total / 2].r) / 2) : 0;
+  const worstTrades = sortedByR.slice(0, 5);
+  const bestTrades = sortedByR.slice(-5).reverse();
+  const sortedByRisk = [...scored].sort((a, b) => a.riskUnit - b.riskUnit);
+  const tiniestRiskTrades = sortedByRisk.slice(0, 5);
 
   function breakdown(key) {
     const groups = {};
@@ -289,9 +296,16 @@ async function main() {
   console.log(`Symbol: ${SYMBOL} | Period: ~${HISTORY_DAYS} days | M1 bars analyzed: ${m1All.length}`);
   console.log(`Total signals fired: ${total}`);
   console.log(`Win rate (TP1 reached): ${winRate.toFixed(1)}%`);
-  console.log(`Average R multiple: ${avgR.toFixed(2)}`);
+  console.log(`Average R multiple: ${avgR.toFixed(2)}   Median R multiple: ${medianR.toFixed(2)}`);
   console.log(`TP2 reached: ${scored.filter(t=>t.hit2).length}/${total}  TP3 reached: ${scored.filter(t=>t.hit3).length}/${total}`);
   console.log(`Reversed before TP3: ${scored.filter(t=>t.exit==='REVERSED').length}/${total}`);
+
+  console.log('\n-- Worst 5 trades by R (likely to reveal outlier bugs) --');
+  console.table(worstTrades.map(t => ({ direction: t.direction, zoneType: t.zoneType, entryPrice: t.entryPrice.toFixed(4), riskUnit: t.riskUnit.toFixed(6), exit: t.exit, exitPrice: t.exitPrice.toFixed(4), r: t.r.toFixed(2) })));
+  console.log('-- Best 5 trades by R --');
+  console.table(bestTrades.map(t => ({ direction: t.direction, zoneType: t.zoneType, entryPrice: t.entryPrice.toFixed(4), riskUnit: t.riskUnit.toFixed(6), exit: t.exit, exitPrice: t.exitPrice.toFixed(4), r: t.r.toFixed(2) })));
+  console.log('-- 5 smallest risk units (most likely to produce distorted R if near zero) --');
+  console.table(tiniestRiskTrades.map(t => ({ direction: t.direction, zoneType: t.zoneType, entryPrice: t.entryPrice.toFixed(4), riskUnit: t.riskUnit.toFixed(6), r: t.r.toFixed(2) })));
 
   console.log('\n-- By zone type --');
   console.table(breakdown('zoneType'));
@@ -302,7 +316,7 @@ async function main() {
 
   fs.writeFileSync('backtest_results.json', JSON.stringify({
     symbol: SYMBOL, historyDays: HISTORY_DAYS, lookback: LOOKBACK, tpStep: TP_STEP,
-    totalSignals: total, winRate, avgR,
+    totalSignals: total, winRate, avgR, medianR,
     byZoneType: breakdown('zoneType'), byBreakType: breakdown('breakType'), bySweep: breakdown('sweep')
   }, null, 2));
 
