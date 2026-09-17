@@ -9,13 +9,14 @@
 import WebSocket from 'ws';
 import fs from 'fs';
 import {
-  computeStructure, computeATR, getCandidateZones, isConfirmationCandle
+  computeStructure, computeATR, getCandidateZones, isConfirmationCandle, computeSL
 } from './strategy_core.mjs';
 
 const APP_ID = 1089;
 const SYMBOL = process.env.SYMBOL || '1HZ90V';
 const LOOKBACK = parseInt(process.env.LOOKBACK || '5', 10);
 const TP_STEP = parseFloat(process.env.TP_STEP || '1');
+const SL_BUFFER = parseFloat(process.env.SL_BUFFER || '0.2');
 const ATR_PERIOD = parseInt(process.env.ATR_PERIOD || '14', 10);
 const HISTORY_DAYS = parseFloat(process.env.HISTORY_DAYS || '30');
 const GRAN_M1 = 60;
@@ -162,6 +163,16 @@ async function main() {
 
     // --- Manage an open trade ---
     if (activeTrade) {
+      const hitSL = activeTrade.direction === 'BUY' ? price <= activeTrade.sl : price >= activeTrade.sl;
+      if (hitSL) {
+        activeTrade.exit = 'SL';
+        activeTrade.exitPrice = price;
+        activeTrade.exitEpoch = currentEpoch;
+        trades.push(activeTrade);
+        activeTrade = null;
+        continue;
+      }
+
       const m1Direction = m1res.state === 1 ? 'BUY' : m1res.state === -1 ? 'SELL' : null;
       const aligned = h1Zone !== 'NEUTRAL' && m1Direction === h1Zone;
       const reversed = aligned && m1Direction !== activeTrade.direction;
@@ -196,7 +207,7 @@ async function main() {
 
     if (isFreshBreak && m1Direction && h1Zone === m1Direction) {
       diag.freshBreaksMatchingH1++;
-      pendingSetup = { direction: m1Direction, breakType: m1res.breakType, sweep: m1res.sweep };
+      pendingSetup = { direction: m1Direction, breakType: m1res.breakType, sweep: m1res.sweep, impulseStart: m1res.impulseStart };
     } else if (pendingSetup) {
       if (h1Zone !== pendingSetup.direction) pendingSetup = null;
       else if (m1Direction && m1Direction !== pendingSetup.direction) pendingSetup = null;
@@ -224,8 +235,9 @@ async function main() {
         const step = atr * TP_STEP;
         const sign = dir === 'BUY' ? 1 : -1;
         const entryPrice = closedCandle.close;
+        const sl = computeSL(dir, pendingSetup.impulseStart, atr, SL_BUFFER);
         activeTrade = {
-          direction: dir, entryPrice, entryEpoch: currentEpoch,
+          direction: dir, entryPrice, entryEpoch: currentEpoch, sl,
           zoneType: triggeredZone.type, breakType: pendingSetup.breakType, sweep: pendingSetup.sweep,
           tp1: entryPrice + sign * step, tp2: entryPrice + sign * 2 * step, tp3: entryPrice + sign * 3 * step,
           hit1: false, hit2: false, hit3: false
@@ -258,7 +270,7 @@ async function main() {
 
   // --- Score results ---
   function rMultiple(t) {
-    const risk = Math.abs(t.tp1 - t.entryPrice); // 1x ATR step used as the risk unit
+    const risk = Math.abs(t.entryPrice - t.sl); // actual risk taken, not the old TP1-distance proxy
     if (risk === 0) return 0;
     const gain = t.direction === 'BUY' ? (t.exitPrice - t.entryPrice) : (t.entryPrice - t.exitPrice);
     return gain / risk;
@@ -298,6 +310,7 @@ async function main() {
   console.log(`Win rate (TP1 reached): ${winRate.toFixed(1)}%`);
   console.log(`Average R multiple: ${avgR.toFixed(2)}   Median R multiple: ${medianR.toFixed(2)}`);
   console.log(`TP2 reached: ${scored.filter(t=>t.hit2).length}/${total}  TP3 reached: ${scored.filter(t=>t.hit3).length}/${total}`);
+  console.log(`Stopped out (SL): ${scored.filter(t=>t.exit==='SL').length}/${total}`);
   console.log(`Reversed before TP3: ${scored.filter(t=>t.exit==='REVERSED').length}/${total}`);
 
   console.log('\n-- Worst 5 trades by R (likely to reveal outlier bugs) --');
@@ -320,9 +333,9 @@ async function main() {
     byZoneType: breakdown('zoneType'), byBreakType: breakdown('breakType'), bySweep: breakdown('sweep')
   }, null, 2));
 
-  const csvHeader = 'entryEpoch,direction,zoneType,breakType,sweep,entryPrice,exit,exitPrice,hit1,hit2,hit3,r\n';
+  const csvHeader = 'entryEpoch,direction,zoneType,breakType,sweep,entryPrice,sl,exit,exitPrice,hit1,hit2,hit3,r\n';
   const csvRows = scored.map(t =>
-    `${t.entryEpoch},${t.direction},${t.zoneType},${t.breakType},${t.sweep},${t.entryPrice.toFixed(4)},${t.exit},${t.exitPrice.toFixed(4)},${t.hit1},${t.hit2},${t.hit3},${t.r.toFixed(3)}`
+    `${t.entryEpoch},${t.direction},${t.zoneType},${t.breakType},${t.sweep},${t.entryPrice.toFixed(4)},${t.sl.toFixed(4)},${t.exit},${t.exitPrice.toFixed(4)},${t.hit1},${t.hit2},${t.hit3},${t.r.toFixed(3)}`
   ).join('\n');
   fs.writeFileSync('backtest_trades.csv', csvHeader + csvRows);
 
