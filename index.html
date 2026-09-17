@@ -185,7 +185,7 @@
   <div class="footer-note">
     P.A.T. + ICT + Retest = market-structure trading with BOS/CHoCH classification, liquidity-sweep tagging, multi-zone retest confirmation, and a real structural stop-loss.<br>
     H1 = swing-structure trend bias, fading toward neutral over time since the last break.<br>
-    M1: a fresh BOS/CHoCH matching H1 <em>arms</em> a setup. Three retest zones are then watched &mdash; the OTE Fibonacci zone, a zone around the original broken structure level, and a projected trendline from the last two swing points. The setup fires only when price touches one of these zones <strong>and</strong> the touching candle confirms with a wick rejection or a strong momentum candle.<br>
+    M1: a fresh BOS/CHoCH matching H1 <em>arms</em> a setup. Three retest zones are then watched &mdash; the OTE Fibonacci zone, a zone around the original broken structure level, and a projected trendline from the last two swing points. The setup fires only when price touches one of these zones <strong>and</strong> the touching candle confirms with a wick rejection or a strong momentum candle, <strong>and</strong> the resulting entry price is still on the correct side of the stop-loss (see fix note in script).<br>
     <strong>Stop-loss</strong> is placed just beyond the swing point that broke (the setup's own invalidation point), plus a small buffer (SL BUFFER &times; ATR). If price reaches SL before TP1&ndash;3, the trade closes there &mdash; losses are capped, not left open until a full structural reversal.<br>
     On trigger, three take-profit levels are set at 1&times;, 2&times;, and 3&times; the TP step (ATR(14) on M1) from the confirmed entry price. Each level alerts once when reached.<br>
     Instrument list is pulled live from Deriv. This is a monitoring/research display only &mdash; it does not place trades. Validate any strategy in the MT5 Strategy Tester before risking real funds.<br><br>
@@ -542,6 +542,7 @@ function sendTelegram(text){
 
 //------------------------------------------------------------------
 // Structure engine: fractal swings + BOS/CHoCH + liquidity sweep + recent swing points (for trendline)
+// NOTE: kept in sync by hand with strategy_core.mjs (see comment at top of that file).
 //------------------------------------------------------------------
 function computeStructure(candles, lb, atrForSweep){
   const n = candles.length;
@@ -641,6 +642,17 @@ function computeSL(direction, impulseStart, atr, bufferMult){
   if (impulseStart === null || atr === null) return null;
   const buffer = atr * bufferMult;
   return direction === 'BUY' ? impulseStart - buffer : impulseStart + buffer;
+}
+
+// FIX (2026-09-17): the "strong momentum" branch of isConfirmationCandle can accept
+// an entry as far as zoneLow = impulseStart - atr*0.3 (BUY case; mirrored for SELL),
+// while computeSL's default buffer (0.2) sits closer to impulseStart than that. That
+// let a momentum-candle entry land beyond its own stop-loss, arming a "SNIPER ENTRY"
+// that was already invalidated the instant it triggered (near-zero or negative risk).
+// Every place that opens activeTrade must check this before doing so.
+function isValidEntry(direction, entryPrice, sl){
+  if (entryPrice === null || sl === null || !Number.isFinite(entryPrice) || !Number.isFinite(sl)) return false;
+  return direction === 'BUY' ? entryPrice > sl : entryPrice < sl;
 }
 
 function projectTrendline(points, atIdx){
@@ -849,6 +861,15 @@ function manageTrade(m1res, atr){
       const sign = dir === 'BUY' ? 1 : -1;
       const entryPrice = closedCandle.close;
       const sl = computeSL(dir, pendingSetup.impulseStart, atr, slBufferMult);
+
+      // FIX: don't arm a trade whose entry is already past its own stop.
+      // See isValidEntry doc comment above for why this can happen.
+      if (!isValidEntry(dir, entryPrice, sl)) {
+        pendingSetup = null;
+        renderIdleBanner();
+        return;
+      }
+
       const tag = pendingSetup.breakType === 'CHOCH' ? 'CHoCH' : 'BOS';
       const sweepTag = pendingSetup.sweep ? ' + liquidity sweep' : '';
       activeTrade = {
