@@ -99,6 +99,14 @@ export function computeOTE(direction, impulseStart, impulseExtreme) {
   return { low: impulseExtreme + range * 0.618, high: impulseExtreme + range * 0.79 };
 }
 
+// Structural stop-loss: just beyond the swing point that broke (the setup's invalidation point),
+// with a small buffer so a routine wick back to the exact level doesn't stop it out prematurely.
+export function computeSL(direction, impulseStart, atr, bufferMult = 0.2) {
+  if (impulseStart === null || atr === null) return null;
+  const buffer = atr * bufferMult;
+  return direction === 'BUY' ? impulseStart - buffer : impulseStart + buffer;
+}
+
 export function projectTrendline(points, atIdx) {
   if (!points || points.length < 2) return null;
   const a = points[points.length - 2], b = points[points.length - 1];
