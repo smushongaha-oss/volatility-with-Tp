@@ -5,11 +5,17 @@
 //   H1_DECAY=1.5  M1_DECAY=4.5  (unused by the trade logic itself, kept for parity)
 //
 // Output: prints a summary to the console and writes backtest_results.json + backtest_trades.csv
+//
+// FIX (2026-09-17): trades could previously open with entryPrice already on the wrong
+// side of their own stop-loss (see strategy_core.mjs isValidEntry for root cause). Those
+// degenerate trades produced near-zero risk and wildly inflated R multiples. They are now
+// rejected at signal time instead of being scored, and counted in the diagnostics so you
+// can see how often it was happening.
 
 import WebSocket from 'ws';
 import fs from 'fs';
 import {
-  computeStructure, computeATR, getCandidateZones, isConfirmationCandle, computeSL
+  computeStructure, computeATR, getCandidateZones, isConfirmationCandle, computeSL, isValidEntry
 } from './strategy_core.mjs';
 
 const APP_ID = 1089;
@@ -138,7 +144,8 @@ async function main() {
     h1BuyBars: 0, h1SellBars: 0, h1NeutralBars: 0,
     freshM1Breaks: 0, freshBreaksMatchingH1: 0,
     pendingBarsTotal: 0, zonesComputedCount: 0, confirmationChecks: 0,
-    maxPendingStreak: 0
+    maxPendingStreak: 0,
+    invalidEntriesRejected: 0 // NEW: confirmation candle fired but entry was already past its own SL
   };
   let currentPendingStreak = 0;
 
@@ -236,13 +243,23 @@ async function main() {
         const sign = dir === 'BUY' ? 1 : -1;
         const entryPrice = closedCandle.close;
         const sl = computeSL(dir, pendingSetup.impulseStart, atr, SL_BUFFER);
-        activeTrade = {
-          direction: dir, entryPrice, entryEpoch: currentEpoch, sl,
-          zoneType: triggeredZone.type, breakType: pendingSetup.breakType, sweep: pendingSetup.sweep,
-          tp1: entryPrice + sign * step, tp2: entryPrice + sign * 2 * step, tp3: entryPrice + sign * 3 * step,
-          hit1: false, hit2: false, hit3: false
-        };
-        pendingSetup = null;
+
+        // FIX: reject setups where the confirmation candle's close is already past
+        // its own stop-loss (see strategy_core.mjs isValidEntry doc comment).
+        // Previously this silently opened a "trade" with near-zero or negative risk,
+        // which is what blew up the R-multiple numbers in the earlier run.
+        if (!isValidEntry(dir, entryPrice, sl)) {
+          diag.invalidEntriesRejected++;
+          pendingSetup = null;
+        } else {
+          activeTrade = {
+            direction: dir, entryPrice, entryEpoch: currentEpoch, sl,
+            zoneType: triggeredZone.type, breakType: pendingSetup.breakType, sweep: pendingSetup.sweep,
+            tp1: entryPrice + sign * step, tp2: entryPrice + sign * 2 * step, tp3: entryPrice + sign * 3 * step,
+            hit1: false, hit2: false, hit3: false
+          };
+          pendingSetup = null;
+        }
       }
     }
   }
@@ -256,6 +273,7 @@ async function main() {
   console.log(`Longest single armed streak: ${diag.maxPendingStreak} bars`);
   console.log(`Retest zones computed while armed: ${diag.zonesComputedCount}`);
   console.log(`Confirmation-candle checks performed: ${diag.confirmationChecks}`);
+  console.log(`Invalid entries rejected (entry already past its own SL): ${diag.invalidEntriesRejected}`);
   console.log(`Signals actually triggered: ${trades.length}`);
   console.log('==========================================\n');
 
@@ -276,7 +294,9 @@ async function main() {
     return gain / risk;
   }
 
-  const scored = trades.map(t => ({ ...t, r: rMultiple(t), riskUnit: Math.abs(t.tp1 - t.entryPrice) }));
+  // riskUnit now matches exactly what rMultiple divides by, so the printed tables
+  // and the r column can never disagree again (this mismatch was the earlier symptom).
+  const scored = trades.map(t => ({ ...t, r: rMultiple(t), riskUnit: Math.abs(t.entryPrice - t.sl) }));
   const wins = scored.filter(t => t.hit1);
   const total = scored.length;
   const winRate = total ? (wins.length / total * 100) : 0;
@@ -330,6 +350,7 @@ async function main() {
   fs.writeFileSync('backtest_results.json', JSON.stringify({
     symbol: SYMBOL, historyDays: HISTORY_DAYS, lookback: LOOKBACK, tpStep: TP_STEP,
     totalSignals: total, winRate, avgR, medianR,
+    invalidEntriesRejected: diag.invalidEntriesRejected,
     byZoneType: breakdown('zoneType'), byBreakType: breakdown('breakType'), bySweep: breakdown('sweep')
   }, null, 2));
 
