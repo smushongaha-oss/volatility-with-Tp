@@ -150,6 +150,24 @@ export function isConfirmationCandle(candle, direction, zoneLow, zoneHigh, atr) 
   return wickRejection || strongMomentum;
 }
 
+// --- FIX: entry/SL sanity check -------------------------------------------------
+// Bug found 2026-09-17: isConfirmationCandle's "strong momentum" branch can accept
+// an entry as low as zoneLow = impulseStart - atr*0.3 (BUY case; mirrored for SELL).
+// computeSL's default buffer (0.2) is smaller than the zone tolerance (0.3), so a
+// momentum-candle entry can land BEYOND its own stop-loss — i.e. entryPrice is
+// already on the wrong side of sl the instant the trade opens. That produces a
+// near-zero (sometimes negative) risk distance, which after Math.abs() turns any
+// R-multiple calculation into a huge, meaningless number. This was misread earlier
+// as a pure R-multiple/display bug; it's actually an invalid-trade bug upstream of
+// any R math. Every caller that opens a trade MUST run entryPrice/sl through this
+// check first and discard the setup if it fails, rather than opening a trade that
+// was invalidated before it started.
+export function isValidEntry(direction, entryPrice, sl) {
+  if (entryPrice === null || sl === null || !Number.isFinite(entryPrice) || !Number.isFinite(sl)) return false;
+  return direction === 'BUY' ? entryPrice > sl : entryPrice < sl;
+}
+// ----------------------------------------------------------------------------------
+
 export function structureToValue(res, decayPerBar) {
   if (!res || res.state === 0) return 50;
   const bars = Math.min(res.barsSinceBos, 100);
