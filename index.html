@@ -652,9 +652,14 @@ function computeSL(direction, impulseStart, atr, bufferMult){
 //
 // FIX (2026-09-17, part 2): a sign check alone wasn't enough — entries barely on the
 // correct side of sl (risk of a few hundredths of a point) are just as degenerate.
-// Now also require the risk to clear a minimum fraction of ATR.
+//
+// FIX (2026-09-18, part 3): an 0.15*ATR floor rejected essentially every real setup —
+// a "retest" entry is by design meant to land close to impulseStart, which is also
+// close to where sl sits, so most legitimate entries and a naive floor collide. Backed
+// off to a much smaller default; the backtest now logs the real risk/ATR distribution
+// so this can be tuned from data instead of guessed again.
 function isValidEntry(direction, entryPrice, sl, atr, minRiskAtrFraction){
-  if (minRiskAtrFraction === undefined) minRiskAtrFraction = 0.15;
+  if (minRiskAtrFraction === undefined) minRiskAtrFraction = 0.02;
   if (entryPrice === null || sl === null || !Number.isFinite(entryPrice) || !Number.isFinite(sl)) return false;
   const correctSide = direction === 'BUY' ? entryPrice > sl : entryPrice < sl;
   if (!correctSide) return false;
