@@ -1,3 +1,4 @@
+// backtest.mjs
 // Usage: node backtest.mjs
 // Config via env vars (all optional, shown with defaults):
 //   SYMBOL=1HZ90V  LOOKBACK=5  TP_STEP=1  ATR_PERIOD=14
@@ -5,25 +6,18 @@
 //   H1_DECAY=1.5  M1_DECAY=4.5  (unused by the trade logic itself, kept for parity)
 //
 // Output: prints a summary to the console and writes backtest_results.json + backtest_trades.csv
-//
-// FIX (2026-09-17): trades could previously open with entryPrice already on the wrong
-// side of their own stop-loss (see strategy_core.mjs isValidEntry for root cause). Those
-// degenerate trades produced near-zero risk and wildly inflated R multiples. They are now
-// rejected at signal time instead of being scored, and counted in the diagnostics so you
-// can see how often it was happening.
 
 import WebSocket from 'ws';
 import fs from 'fs';
 import {
-  computeStructure, computeATR, getCandidateZones, isConfirmationCandle, computeSL, isValidEntry
+  computeStructure, computeATR, getCandidateZones, isConfirmationCandle, computeSL
 } from './strategy_core.mjs';
 
 const APP_ID = 1089;
 const SYMBOL = process.env.SYMBOL || '1HZ90V';
 const LOOKBACK = parseInt(process.env.LOOKBACK || '5', 10);
 const TP_STEP = parseFloat(process.env.TP_STEP || '1');
-const SL_BUFFER = parseFloat(process.env.SL_BUFFER || '0.2');
-const MIN_RISK_ATR_FRACTION = parseFloat(process.env.MIN_RISK_ATR_FRACTION || '0.02');
+const SL_ATR_MULT = parseFloat(process.env.SL_ATR_MULT || '1');
 const ATR_PERIOD = parseInt(process.env.ATR_PERIOD || '14', 10);
 const HISTORY_DAYS = parseFloat(process.env.HISTORY_DAYS || '30');
 const GRAN_M1 = 60;
@@ -145,9 +139,7 @@ async function main() {
     h1BuyBars: 0, h1SellBars: 0, h1NeutralBars: 0,
     freshM1Breaks: 0, freshBreaksMatchingH1: 0,
     pendingBarsTotal: 0, zonesComputedCount: 0, confirmationChecks: 0,
-    maxPendingStreak: 0,
-    invalidEntriesRejected: 0, // NEW: confirmation candle fired but entry was already past its own SL
-    riskAtrRatios: [] // NEW: risk/ATR for every confirmation trigger, accepted or not — for calibrating the floor from real data
+    maxPendingStreak: 0
   };
   let currentPendingStreak = 0;
 
@@ -244,31 +236,14 @@ async function main() {
         const step = atr * TP_STEP;
         const sign = dir === 'BUY' ? 1 : -1;
         const entryPrice = closedCandle.close;
-        const sl = computeSL(dir, pendingSetup.impulseStart, atr, SL_BUFFER);
-
-        // Record risk/ATR for every trigger attempt (accepted or rejected) so the
-        // floor can be calibrated from real data instead of guessed. A negative ratio
-        // here means the sign check alone would have failed (entry past its own SL).
-        const signedRiskAtr = (dir === 'BUY' ? (entryPrice - sl) : (sl - entryPrice)) / atr;
-        diag.riskAtrRatios.push(signedRiskAtr);
-
-        // FIX: reject setups where the confirmation candle's close is already past
-        // its own stop-loss, OR where it's on the correct side but too close to it to
-        // be a real risk distance (see strategy_core.mjs isValidEntry doc comment,
-        // parts 1 and 2). Previously this silently opened a "trade" with near-zero or
-        // negative risk, which is what blew up the R-multiple numbers in earlier runs.
-        if (!isValidEntry(dir, entryPrice, sl, atr, MIN_RISK_ATR_FRACTION)) {
-          diag.invalidEntriesRejected++;
-          pendingSetup = null;
-        } else {
-          activeTrade = {
-            direction: dir, entryPrice, entryEpoch: currentEpoch, sl,
-            zoneType: triggeredZone.type, breakType: pendingSetup.breakType, sweep: pendingSetup.sweep,
-            tp1: entryPrice + sign * step, tp2: entryPrice + sign * 2 * step, tp3: entryPrice + sign * 3 * step,
-            hit1: false, hit2: false, hit3: false
-          };
-          pendingSetup = null;
-        }
+        const sl = computeSL(dir, entryPrice, atr, SL_ATR_MULT);
+        activeTrade = {
+          direction: dir, entryPrice, entryEpoch: currentEpoch, sl,
+          zoneType: triggeredZone.type, breakType: pendingSetup.breakType, sweep: pendingSetup.sweep,
+          tp1: entryPrice + sign * step, tp2: entryPrice + sign * 2 * step, tp3: entryPrice + sign * 3 * step,
+          hit1: false, hit2: false, hit3: false
+        };
+        pendingSetup = null;
       }
     }
   }
@@ -282,22 +257,7 @@ async function main() {
   console.log(`Longest single armed streak: ${diag.maxPendingStreak} bars`);
   console.log(`Retest zones computed while armed: ${diag.zonesComputedCount}`);
   console.log(`Confirmation-candle checks performed: ${diag.confirmationChecks}`);
-  console.log(`Invalid entries rejected (entry already past its own SL): ${diag.invalidEntriesRejected}`);
   console.log(`Signals actually triggered: ${trades.length}`);
-
-  // Risk/ATR distribution across every trigger attempt (accepted or rejected).
-  // Use this to pick minRiskAtrFraction empirically instead of guessing.
-  if (diag.riskAtrRatios.length) {
-    const sorted = [...diag.riskAtrRatios].sort((a, b) => a - b);
-    const pct = (p) => {
-      const idx = Math.min(sorted.length - 1, Math.max(0, Math.round(p * (sorted.length - 1))));
-      return sorted[idx];
-    };
-    console.log(`\nRisk/ATR ratio distribution across ${sorted.length} trigger attempts (negative = entry already past its own SL):`);
-    console.log(`  min: ${sorted[0].toFixed(4)}  p10: ${pct(0.10).toFixed(4)}  p25: ${pct(0.25).toFixed(4)}  p50: ${pct(0.50).toFixed(4)}  p75: ${pct(0.75).toFixed(4)}  p90: ${pct(0.90).toFixed(4)}  max: ${sorted[sorted.length-1].toFixed(4)}`);
-    const negCount = sorted.filter(r => r <= 0).length;
-    console.log(`  <= 0 (would fail even a pure sign check): ${negCount}/${sorted.length} (${(negCount/sorted.length*100).toFixed(1)}%)`);
-  }
   console.log('==========================================\n');
 
   // If a trade was still open at the end of the data, close it out at last known price for scoring purposes.
@@ -310,15 +270,6 @@ async function main() {
   }
 
   // --- Score results ---
-  // rMultiple = raw R using the actual exit price. On an SL exit this can overshoot -1R
-  // when a single bar gaps through the stop before it could realistically be hit exactly
-  // (common on these volatility indices — see 2026-09-18 run where SL exits showed R as
-  // extreme as -60). That's a real, honest simulation of what happened to the price series,
-  // but it conflates "the strategy was wrong" with "the stop was priced too tight to fill
-  // cleanly". rMultipleCapped answers a different question: assuming a fill exactly at the
-  // SL/TP level with no slippage, what would R have been? Report both — don't silently
-  // pick one, since they tell you different things about where the edge (or lack of it)
-  // is coming from.
   function rMultiple(t) {
     const risk = Math.abs(t.entryPrice - t.sl); // actual risk taken, not the old TP1-distance proxy
     if (risk === 0) return 0;
@@ -326,34 +277,14 @@ async function main() {
     return gain / risk;
   }
 
-  function rMultipleCapped(t) {
-    const risk = Math.abs(t.entryPrice - t.sl);
-    if (risk === 0) return 0;
-    // Cap the exit at the level that was actually hit for scoring purposes. SL exits are
-    // capped at exactly -1R (idealized fill at the stop). TP3 exits are capped at the TP3
-    // target so a favorable gap doesn't inflate the win side either, keeping the comparison
-    // symmetric. Anything else (REVERSED, END_OF_DATA) is left as the real exit price, since
-    // there's no target/stop level to cap it against.
-    let cappedExitPrice = t.exitPrice;
-    if (t.exit === 'SL') cappedExitPrice = t.sl;
-    else if (t.exit === 'TP3') cappedExitPrice = t.tp3;
-    const gain = t.direction === 'BUY' ? (cappedExitPrice - t.entryPrice) : (t.entryPrice - cappedExitPrice);
-    return gain / risk;
-  }
-
-  // riskUnit now matches exactly what rMultiple divides by, so the printed tables
-  // and the r column can never disagree again (this mismatch was the earlier symptom).
-  const scored = trades.map(t => ({ ...t, r: rMultiple(t), rCapped: rMultipleCapped(t), riskUnit: Math.abs(t.entryPrice - t.sl) }));
+  const scored = trades.map(t => ({ ...t, r: rMultiple(t), riskUnit: Math.abs(t.entryPrice - t.sl) }));
   const wins = scored.filter(t => t.hit1);
   const total = scored.length;
   const winRate = total ? (wins.length / total * 100) : 0;
   const avgR = total ? (scored.reduce((a, t) => a + t.r, 0) / total) : 0;
-  const avgRCapped = total ? (scored.reduce((a, t) => a + t.rCapped, 0) / total) : 0;
 
   const sortedByR = [...scored].sort((a, b) => a.r - b.r);
   const medianR = total ? (total % 2 === 1 ? sortedByR[(total - 1) / 2].r : (sortedByR[total / 2 - 1].r + sortedByR[total / 2].r) / 2) : 0;
-  const sortedByRCapped = [...scored].sort((a, b) => a.rCapped - b.rCapped);
-  const medianRCapped = total ? (total % 2 === 1 ? sortedByRCapped[(total - 1) / 2].rCapped : (sortedByRCapped[total / 2 - 1].rCapped + sortedByRCapped[total / 2].rCapped) / 2) : 0;
   const worstTrades = sortedByR.slice(0, 5);
   const bestTrades = sortedByR.slice(-5).reverse();
   const sortedByRisk = [...scored].sort((a, b) => a.riskUnit - b.riskUnit);
@@ -370,8 +301,7 @@ async function main() {
       [key]: k,
       count: arr.length,
       winRate: (arr.filter(t => t.hit1).length / arr.length * 100).toFixed(1) + '%',
-      avgR: (arr.reduce((a, t) => a + t.r, 0) / arr.length).toFixed(2),
-      avgRCapped: (arr.reduce((a, t) => a + t.rCapped, 0) / arr.length).toFixed(2)
+      avgR: (arr.reduce((a, t) => a + t.r, 0) / arr.length).toFixed(2)
     }));
   }
 
@@ -379,20 +309,19 @@ async function main() {
   console.log(`Symbol: ${SYMBOL} | Period: ~${HISTORY_DAYS} days | M1 bars analyzed: ${m1All.length}`);
   console.log(`Total signals fired: ${total}`);
   console.log(`Win rate (TP1 reached): ${winRate.toFixed(1)}%`);
-  console.log(`Average R multiple: ${avgR.toFixed(2)}   Median R multiple: ${medianR.toFixed(2)}   (raw, uses actual exit price)`);
-  console.log(`Average R (capped at SL/TP3): ${avgRCapped.toFixed(2)}   Median R (capped): ${medianRCapped.toFixed(2)}   (idealized fill, no gap-through/slippage)`);
+  console.log(`Average R multiple: ${avgR.toFixed(2)}   Median R multiple: ${medianR.toFixed(2)}`);
   console.log(`TP2 reached: ${scored.filter(t=>t.hit2).length}/${total}  TP3 reached: ${scored.filter(t=>t.hit3).length}/${total}`);
   console.log(`Stopped out (SL): ${scored.filter(t=>t.exit==='SL').length}/${total}`);
   console.log(`Reversed before TP3: ${scored.filter(t=>t.exit==='REVERSED').length}/${total}`);
 
   console.log('\n-- Worst 5 trades by R (likely to reveal outlier bugs) --');
-  console.table(worstTrades.map(t => ({ direction: t.direction, zoneType: t.zoneType, entryPrice: t.entryPrice.toFixed(4), riskUnit: t.riskUnit.toFixed(6), exit: t.exit, exitPrice: t.exitPrice.toFixed(4), r: t.r.toFixed(2), rCapped: t.rCapped.toFixed(2) })));
+  console.table(worstTrades.map(t => ({ direction: t.direction, zoneType: t.zoneType, entryPrice: t.entryPrice.toFixed(4), riskUnit: t.riskUnit.toFixed(6), exit: t.exit, exitPrice: t.exitPrice.toFixed(4), r: t.r.toFixed(2) })));
   console.log('-- Best 5 trades by R --');
-  console.table(bestTrades.map(t => ({ direction: t.direction, zoneType: t.zoneType, entryPrice: t.entryPrice.toFixed(4), riskUnit: t.riskUnit.toFixed(6), exit: t.exit, exitPrice: t.exitPrice.toFixed(4), r: t.r.toFixed(2), rCapped: t.rCapped.toFixed(2) })));
+  console.table(bestTrades.map(t => ({ direction: t.direction, zoneType: t.zoneType, entryPrice: t.entryPrice.toFixed(4), riskUnit: t.riskUnit.toFixed(6), exit: t.exit, exitPrice: t.exitPrice.toFixed(4), r: t.r.toFixed(2) })));
   console.log('-- 5 smallest risk units (most likely to produce distorted R if near zero) --');
-  console.table(tiniestRiskTrades.map(t => ({ direction: t.direction, zoneType: t.zoneType, entryPrice: t.entryPrice.toFixed(4), riskUnit: t.riskUnit.toFixed(6), r: t.r.toFixed(2), rCapped: t.rCapped.toFixed(2) })));
+  console.table(tiniestRiskTrades.map(t => ({ direction: t.direction, zoneType: t.zoneType, entryPrice: t.entryPrice.toFixed(4), riskUnit: t.riskUnit.toFixed(6), r: t.r.toFixed(2) })));
 
-  console.log('\n-- By zone type (avgR = raw, avgRCapped = idealized fill) --');
+  console.log('\n-- By zone type --');
   console.table(breakdown('zoneType'));
   console.log('-- By break type --');
   console.table(breakdown('breakType'));
@@ -401,14 +330,13 @@ async function main() {
 
   fs.writeFileSync('backtest_results.json', JSON.stringify({
     symbol: SYMBOL, historyDays: HISTORY_DAYS, lookback: LOOKBACK, tpStep: TP_STEP,
-    totalSignals: total, winRate, avgR, medianR, avgRCapped, medianRCapped,
-    invalidEntriesRejected: diag.invalidEntriesRejected,
+    totalSignals: total, winRate, avgR, medianR,
     byZoneType: breakdown('zoneType'), byBreakType: breakdown('breakType'), bySweep: breakdown('sweep')
   }, null, 2));
 
-  const csvHeader = 'entryEpoch,direction,zoneType,breakType,sweep,entryPrice,sl,tp3,exit,exitPrice,hit1,hit2,hit3,r,rCapped\n';
+  const csvHeader = 'entryEpoch,direction,zoneType,breakType,sweep,entryPrice,sl,exit,exitPrice,hit1,hit2,hit3,r\n';
   const csvRows = scored.map(t =>
-    `${t.entryEpoch},${t.direction},${t.zoneType},${t.breakType},${t.sweep},${t.entryPrice.toFixed(4)},${t.sl.toFixed(4)},${t.tp3.toFixed(4)},${t.exit},${t.exitPrice.toFixed(4)},${t.hit1},${t.hit2},${t.hit3},${t.r.toFixed(3)},${t.rCapped.toFixed(3)}`
+    `${t.entryEpoch},${t.direction},${t.zoneType},${t.breakType},${t.sweep},${t.entryPrice.toFixed(4)},${t.sl.toFixed(4)},${t.exit},${t.exitPrice.toFixed(4)},${t.hit1},${t.hit2},${t.hit3},${t.r.toFixed(3)}`
   ).join('\n');
   fs.writeFileSync('backtest_trades.csv', csvHeader + csvRows);
 
