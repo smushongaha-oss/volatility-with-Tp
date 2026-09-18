@@ -1,0 +1,915 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Volatility Index — P.A.T. + ICT + Retest Sniper Entry</title>
+<style>
+  :root{
+    --bg:#050914;
+    --panel:#0a1224;
+    --cyan:#33d6ff;
+    --cyan-dim:#1a7a99;
+    --red:#ff4d4d;
+    --amber:#ffb020;
+    --green:#3ddc84;
+    --text:#dff6ff;
+    --muted:#5f7d92;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:radial-gradient(ellipse at top, #0c1930 0%, var(--bg) 70%);
+    color:var(--text);
+    font-family:'Courier New', monospace;
+    display:flex;
+    justify-content:center;
+    padding:24px 16px;
+  }
+  .frame{
+    width:100%;
+    max-width:640px;
+    background:var(--panel);
+    border:1px solid var(--cyan-dim);
+    border-radius:14px;
+    padding:24px 24px 20px;
+    box-shadow:0 0 40px rgba(51,214,255,0.08), inset 0 0 30px rgba(51,214,255,0.03);
+  }
+  .header{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px;flex-wrap:wrap;gap:6px;}
+  .header h1{font-size:15px;letter-spacing:1px;margin:0;color:var(--cyan);text-shadow:0 0 8px rgba(51,214,255,0.4);}
+  .status-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--red);margin-right:6px;box-shadow:0 0 6px currentColor;}
+  .status-dot.live{background:var(--green);}
+  .status-line{font-size:11px;color:var(--muted);margin-bottom:14px;}
+  .selector-row{display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap;}
+  .selector-row label{font-size:11px;letter-spacing:1px;color:var(--muted);white-space:nowrap;}
+  .selector-row select, .selector-row input{
+    background:#0d1830;
+    color:var(--cyan);
+    border:1px solid var(--cyan-dim);
+    border-radius:6px;
+    padding:8px 10px;
+    font-family:'Courier New', monospace;
+    font-size:13px;
+  }
+  .selector-row select{flex:1;}
+  .selector-row input[type=number]{width:60px;}
+  .section-label{font-size:12px;letter-spacing:2px;color:var(--cyan-dim);margin:18px 0 2px;}
+  .price-row{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:4px;}
+  .price-row span.val{color:var(--text);font-size:13px;}
+  .swing-row{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:2px;}
+  .swing-row span.val{color:var(--cyan-dim);text-align:right;max-width:60%;}
+  svg{display:block;margin:4px auto 0;}
+  .needle{transition:transform 0.6s cubic-bezier(.4,1.4,.4,1);}
+  .valLabel{transition:fill 0.4s;}
+  .sniper-banner{
+    margin-top:20px;
+    border-radius:10px;
+    padding:16px;
+    text-align:center;
+    letter-spacing:2px;
+    font-size:16px;
+    font-weight:bold;
+    border:1px solid var(--muted);
+    color:var(--muted);
+    background:rgba(255,255,255,0.02);
+    transition:all 0.4s;
+  }
+  .sniper-banner.buy{border-color:var(--green);color:var(--green);box-shadow:0 0 20px rgba(61,220,132,0.25);background:rgba(61,220,132,0.06);}
+  .sniper-banner.sell{border-color:var(--red);color:var(--red);box-shadow:0 0 20px rgba(255,77,77,0.25);background:rgba(255,77,77,0.06);}
+  .sniper-banner.tp{border-color:var(--amber);color:var(--amber);box-shadow:0 0 20px rgba(255,176,32,0.3);background:rgba(255,176,32,0.08);}
+  .sniper-banner.sl{border-color:var(--red);color:var(--red);box-shadow:0 0 20px rgba(255,77,77,0.4);background:rgba(255,77,77,0.1);}
+  .sniper-banner.armed{border-color:var(--amber);color:var(--amber);box-shadow:0 0 16px rgba(255,176,32,0.2);background:rgba(255,176,32,0.05);}
+  .sniper-sub{font-size:10px;letter-spacing:1px;color:var(--muted);margin-top:6px;font-weight:normal;line-height:1.5;}
+  .tp-stats{display:flex;justify-content:center;gap:16px;margin-top:12px;flex-wrap:wrap;}
+  .tp-col{text-align:center;}
+  .tp-label{font-size:9px;letter-spacing:2px;color:var(--muted);margin-bottom:2px;}
+  .tp-value{font-size:14px;font-weight:bold;letter-spacing:1px;color:var(--muted);}
+  .tp-value.hit{color:var(--green);text-decoration:line-through;text-decoration-color:rgba(61,220,132,0.6);}
+  .tp-value.sl-value{color:var(--red);}
+  .footer-note{font-size:10px;color:var(--muted);text-align:center;margin-top:14px;line-height:1.6;}
+</style>
+</head>
+<body>
+<div class="frame">
+  <div class="header">
+    <h1 id="mainTitle">LOADING INSTRUMENT LIST&hellip;</h1>
+    <div><span class="status-dot" id="statusDot"></span><span id="statusText">connecting</span></div>
+  </div>
+  <div class="status-line" id="subLine">Fetching available volatility indices from Deriv&hellip;</div>
+
+  <div class="selector-row">
+    <label for="symbolSelect">INSTRUMENT</label>
+    <select id="symbolSelect" disabled><option>Loading…</option></select>
+  </div>
+  <div class="selector-row">
+    <label for="lookbackInput">SWING LOOKBACK</label>
+    <input type="number" id="lookbackInput" min="2" max="15" value="5">
+    <label style="margin-left:auto;">P.A.T. + ICT + RETEST</label>
+  </div>
+
+  <div class="selector-row" style="margin-bottom:16px;">
+    <label style="white-space:nowrap;">ALERTS</label>
+    <button id="notifyBtn" style="flex:1;background:#0d1830;color:var(--cyan);border:1px solid var(--cyan-dim);border-radius:6px;padding:8px 10px;font-family:'Courier New',monospace;font-size:12px;letter-spacing:1px;cursor:pointer;">🔔 ENABLE NOTIFICATIONS</button>
+  </div>
+
+  <div class="tg-config" style="border:1px solid var(--cyan-dim);border-radius:8px;padding:12px;margin-bottom:16px;">
+    <div style="font-size:11px;letter-spacing:1px;color:var(--cyan-dim);margin-bottom:8px;">TELEGRAM ALERTS</div>
+    <div style="display:flex;flex-direction:column;gap:8px;">
+      <input type="text" id="tgToken" placeholder="Bot token (from @BotFather)" style="background:#0d1830;color:var(--text);border:1px solid var(--cyan-dim);border-radius:6px;padding:8px;font-family:'Courier New',monospace;font-size:12px;">
+      <input type="text" id="tgChatId" placeholder="Chat ID" style="background:#0d1830;color:var(--text);border:1px solid var(--cyan-dim);border-radius:6px;padding:8px;font-family:'Courier New',monospace;font-size:12px;">
+      <div style="display:flex;gap:8px;">
+        <button id="tgSaveBtn" style="flex:1;background:#0d1830;color:var(--cyan);border:1px solid var(--cyan-dim);border-radius:6px;padding:8px;font-family:'Courier New',monospace;font-size:11px;letter-spacing:1px;cursor:pointer;">SAVE</button>
+        <button id="tgTestBtn" style="flex:1;background:#0d1830;color:var(--cyan);border:1px solid var(--cyan-dim);border-radius:6px;padding:8px;font-family:'Courier New',monospace;font-size:11px;letter-spacing:1px;cursor:pointer;">SEND TEST</button>
+      </div>
+      <div id="tgStatus" style="font-size:10px;color:var(--muted);"></div>
+    </div>
+  </div>
+
+  <div class="selector-row">
+    <label for="tpMultInput" style="white-space:nowrap;">TP STEP (&times; ATR M1)</label>
+    <input type="number" id="tpMultInput" min="0.5" max="5" step="0.5" value="1">
+    <label for="slBufferInput" style="white-space:nowrap;margin-left:12px;">SL BUFFER (&times; ATR)</label>
+    <input type="number" id="slBufferInput" min="0.05" max="2" step="0.05" value="0.2">
+  </div>
+
+  <div class="section-label">H1 — STRUCTURE / TREND BIAS</div>
+  <div class="price-row"><span>Price</span><span class="val" id="h1Price">&mdash;</span></div>
+  <div class="swing-row"><span>Last Swing High</span><span class="val" id="h1SwingHigh">&mdash;</span></div>
+  <div class="swing-row"><span>Last Swing Low</span><span class="val" id="h1SwingLow">&mdash;</span></div>
+  <svg width="100%" viewBox="0 0 680 300" role="img" aria-label="H1 bias gauge">
+    <path d="M120,260 A220,220 0 0,1 162,131" fill="none" stroke="#7a1f1f" stroke-width="40"/>
+    <path d="M162,131 A220,220 0 0,1 272,51"  fill="none" stroke="#7a4a15" stroke-width="40"/>
+    <path d="M272,51  A220,220 0 0,1 408,51"  fill="none" stroke="#33465a" stroke-width="40"/>
+    <path d="M408,51  A220,220 0 0,1 518,131" fill="none" stroke="#2f6b3a" stroke-width="40"/>
+    <path d="M518,131 A220,220 0 0,1 560,260" fill="none" stroke="#1d4d26" stroke-width="40"/>
+    <text x="90" y="285" text-anchor="middle" fill="var(--muted)" font-size="11">BEARISH</text>
+    <text x="590" y="285" text-anchor="middle" fill="var(--muted)" font-size="11">BULLISH</text>
+    <line id="h1Needle" class="needle" x1="340" y1="260" x2="130" y2="260" stroke="var(--cyan)" stroke-width="3" stroke-linecap="round" transform="rotate(90,340,260)" style="filter:drop-shadow(0 0 4px rgba(51,214,255,0.8));"/>
+    <circle cx="340" cy="260" r="9" fill="var(--cyan)" style="filter:drop-shadow(0 0 4px rgba(51,214,255,0.8));"/>
+    <text id="h1ValLabel" class="valLabel" x="340" y="205" text-anchor="middle" fill="var(--cyan)" style="font-size:22px;font-family:'Courier New',monospace;">&mdash;</text>
+    <text id="h1StatusLabel" x="340" y="228" text-anchor="middle" fill="var(--muted)" style="font-size:12px;letter-spacing:2px;font-family:'Courier New',monospace;">WAITING</text>
+  </svg>
+
+  <div class="section-label">M1 — BREAK OF STRUCTURE / RETEST ENTRY</div>
+  <div class="price-row"><span>Price</span><span class="val" id="m1Price">&mdash;</span></div>
+  <div class="swing-row"><span>Last Swing High</span><span class="val" id="m1SwingHigh">&mdash;</span></div>
+  <div class="swing-row"><span>Last Swing Low</span><span class="val" id="m1SwingLow">&mdash;</span></div>
+  <div class="swing-row"><span>Last Break</span><span class="val" id="m1BreakType">&mdash;</span></div>
+  <div class="swing-row"><span>Liquidity Sweep</span><span class="val" id="m1Sweep">&mdash;</span></div>
+  <div class="swing-row"><span>Retest Zones</span><span class="val" id="m1Zones">&mdash;</span></div>
+  <svg width="100%" viewBox="0 0 680 300" role="img" aria-label="M1 entry gauge">
+    <path d="M120,260 A220,220 0 0,1 162,131" fill="none" stroke="#7a1f1f" stroke-width="40"/>
+    <path d="M162,131 A220,220 0 0,1 272,51"  fill="none" stroke="#7a4a15" stroke-width="40"/>
+    <path d="M272,51  A220,220 0 0,1 408,51"  fill="none" stroke="#33465a" stroke-width="40"/>
+    <path d="M408,51  A220,220 0 0,1 518,131" fill="none" stroke="#2f6b3a" stroke-width="40"/>
+    <path d="M518,131 A220,220 0 0,1 560,260" fill="none" stroke="#1d4d26" stroke-width="40"/>
+    <text x="90" y="285" text-anchor="middle" fill="var(--muted)" font-size="11">BEARISH</text>
+    <text x="590" y="285" text-anchor="middle" fill="var(--muted)" font-size="11">BULLISH</text>
+    <line id="m1Needle" class="needle" x1="340" y1="260" x2="130" y2="260" stroke="var(--cyan)" stroke-width="3" stroke-linecap="round" transform="rotate(90,340,260)" style="filter:drop-shadow(0 0 4px rgba(51,214,255,0.8));"/>
+    <circle cx="340" cy="260" r="9" fill="var(--cyan)" style="filter:drop-shadow(0 0 4px rgba(51,214,255,0.8));"/>
+    <text id="m1ValLabel" class="valLabel" x="340" y="205" text-anchor="middle" fill="var(--cyan)" style="font-size:22px;font-family:'Courier New',monospace;">&mdash;</text>
+    <text id="m1StatusLabel" x="340" y="228" text-anchor="middle" fill="var(--muted)" style="font-size:12px;letter-spacing:2px;font-family:'Courier New',monospace;">WAITING</text>
+  </svg>
+
+  <div class="sniper-banner" id="sniperBanner">
+    NO ALIGNMENT &mdash; WAIT
+    <div class="tp-stats" id="tpStats" style="display:none;">
+      <div class="tp-col"><div class="tp-label">SL</div><div class="tp-value sl-value" id="slStat">&mdash;</div></div>
+      <div class="tp-col"><div class="tp-label">ENTRY</div><div class="tp-value" id="entryStat">&mdash;</div></div>
+      <div class="tp-col"><div class="tp-label">TP1</div><div class="tp-value" id="tp1Stat">&mdash;</div></div>
+      <div class="tp-col"><div class="tp-label">TP2</div><div class="tp-value" id="tp2Stat">&mdash;</div></div>
+      <div class="tp-col"><div class="tp-label">TP3</div><div class="tp-value" id="tp3Stat">&mdash;</div></div>
+    </div>
+    <div class="sniper-sub">H1 trend and M1 timing are not agreeing</div>
+  </div>
+
+  <div class="footer-note">
+    P.A.T. + ICT + Retest = market-structure trading with BOS/CHoCH classification, liquidity-sweep tagging, multi-zone retest confirmation, and a real structural stop-loss.<br>
+    H1 = swing-structure trend bias, fading toward neutral over time since the last break.<br>
+    M1: a fresh BOS/CHoCH matching H1 <em>arms</em> a setup. Three retest zones are then watched &mdash; the OTE Fibonacci zone, a zone around the original broken structure level, and a projected trendline from the last two swing points. The setup fires only when price touches one of these zones <strong>and</strong> the touching candle confirms with a wick rejection or a strong momentum candle, <strong>and</strong> the resulting entry price is still on the correct side of the stop-loss (see fix note in script).<br>
+    <strong>Stop-loss</strong> is placed just beyond the swing point that broke (the setup's own invalidation point), plus a small buffer (SL BUFFER &times; ATR). If price reaches SL before TP1&ndash;3, the trade closes there &mdash; losses are capped, not left open until a full structural reversal.<br>
+    On trigger, three take-profit levels are set at 1&times;, 2&times;, and 3&times; the TP step (ATR(14) on M1) from the confirmed entry price. Each level alerts once when reached.<br>
+    Instrument list is pulled live from Deriv. This is a monitoring/research display only &mdash; it does not place trades. Validate any strategy in the MT5 Strategy Tester before risking real funds.<br><br>
+    <strong>Telegram setup:</strong> message @BotFather on Telegram, send /newbot, paste the token above.
+    Then message your new bot anything, open
+    <span style="word-break:break-all;">api.telegram.org/bot&lt;TOKEN&gt;/getUpdates</span>
+    in a browser and copy the "chat":"id" number into Chat ID above. Tap SAVE, then SEND TEST.
+  </div>
+</div>
+
+<script>
+const APP_ID = 1089;
+const GRAN_H1 = 3600;
+const GRAN_M1 = 60;
+const ATR_PERIOD = 14;
+const H1_REFRESH_MS = 5 * 60 * 1000;
+const H1_DECAY_PER_BAR = 1.5;
+const M1_DECAY_PER_BAR = 4.5;
+
+let ws;
+let SYMBOL = null;
+let DISPLAY_NAME = '';
+let h1Candles = [];
+let m1Candles = [];
+let subscribedTicks = false;
+let h1Zone = 'NEUTRAL';
+let m1Zone = 'NEUTRAL';
+let dataReceived = false;
+let lookback = 5;
+let tpStep = 1;
+let slBufferMult = 0.2;
+let activeTrade = null;   // { direction, entryPrice, sl, tp1, tp2, tp3, hit1, hit2, hit3 }
+let pendingSetup = null;  // { direction, breakType, sweep, impulseStart }
+
+const FALLBACK_SYMBOLS = [
+  { symbol: 'R_10',    display_name: 'Volatility 10 Index' },
+  { symbol: 'R_25',    display_name: 'Volatility 25 Index' },
+  { symbol: 'R_50',    display_name: 'Volatility 50 Index' },
+  { symbol: 'R_75',    display_name: 'Volatility 75 Index' },
+  { symbol: 'R_100',   display_name: 'Volatility 100 Index' },
+  { symbol: '1HZ10V',  display_name: 'Volatility 10 (1s) Index' },
+  { symbol: '1HZ15V',  display_name: 'Volatility 15 (1s) Index' },
+  { symbol: '1HZ25V',  display_name: 'Volatility 25 (1s) Index' },
+  { symbol: '1HZ30V',  display_name: 'Volatility 30 (1s) Index' },
+  { symbol: '1HZ50V',  display_name: 'Volatility 50 (1s) Index' },
+  { symbol: '1HZ75V',  display_name: 'Volatility 75 (1s) Index' },
+  { symbol: '1HZ90V',  display_name: 'Volatility 90 (1s) Index' },
+  { symbol: '1HZ100V', display_name: 'Volatility 100 (1s) Index' }
+];
+
+const statusDot = document.getElementById('statusDot');
+const statusText = document.getElementById('statusText');
+const symbolSelect = document.getElementById('symbolSelect');
+const mainTitle = document.getElementById('mainTitle');
+const subLine = document.getElementById('subLine');
+const lookbackInput = document.getElementById('lookbackInput');
+const tpMultInput = document.getElementById('tpMultInput');
+const slBufferInput = document.getElementById('slBufferInput');
+
+lookbackInput.addEventListener('change', () => {
+  const v = parseInt(lookbackInput.value, 10);
+  lookback = Number.isFinite(v) && v >= 2 ? Math.min(15, v) : 5;
+  recomputeH1();
+  recomputeM1();
+});
+
+tpMultInput.addEventListener('change', () => {
+  const v = parseFloat(tpMultInput.value);
+  tpStep = Number.isFinite(v) && v > 0 ? v : 1;
+});
+
+slBufferInput.addEventListener('change', () => {
+  const v = parseFloat(slBufferInput.value);
+  slBufferMult = Number.isFinite(v) && v > 0 ? v : 0.2;
+});
+
+function setConnState(live, label){
+  statusDot.classList.toggle('live', live);
+  statusText.textContent = label;
+}
+
+initialSymbolSetup(FALLBACK_SYMBOLS);
+
+function connect(){
+  ws = new WebSocket(`wss://ws.derivws.com/websockets/v3?app_id=${APP_ID}`);
+
+  ws.onopen = () => {
+    setConnState(false, 'loading ' + SYMBOL);
+    loadSymbol(SYMBOL);
+    ws.send(JSON.stringify({ active_symbols: "brief", product_type: "basic" }));
+  };
+
+  ws.onmessage = (msg) => {
+    const data = JSON.parse(msg.data);
+
+    if (data.error) {
+      console.warn('API error:', data.error.message, data.echo_req);
+      if (!dataReceived) setConnState(false, 'error: ' + data.error.message);
+      return;
+    }
+
+    if (data.msg_type === "active_symbols") {
+      upgradeDropdownFromLive(data.active_symbols);
+      return;
+    }
+
+    if (data.msg_type === "candles") {
+      const gran = data.echo_req.granularity;
+      const mapped = data.candles.map(c => ({
+        open: parseFloat(c.open),
+        high: parseFloat(c.high),
+        low: parseFloat(c.low),
+        close: parseFloat(c.close),
+        epoch: c.epoch
+      }));
+      if (gran === GRAN_H1) {
+        h1Candles = mapped;
+        recomputeH1();
+      } else if (gran === GRAN_M1) {
+        m1Candles = mapped;
+        recomputeM1();
+        if (!subscribedTicks) {
+          ws.send(JSON.stringify({ ticks: SYMBOL, subscribe: 1 }));
+          subscribedTicks = true;
+        }
+      }
+      dataReceived = true;
+      setConnState(true, 'live');
+    }
+
+    if (data.msg_type === "tick" && data.tick.symbol === SYMBOL) {
+      const price = parseFloat(data.tick.quote);
+      const epoch = data.tick.epoch;
+      const candleEpoch = Math.floor(epoch / GRAN_M1) * GRAN_M1;
+      const last = m1Candles[m1Candles.length - 1];
+      if (last && last.epoch === candleEpoch) {
+        last.high = Math.max(last.high, price);
+        last.low = Math.min(last.low, price);
+        last.close = price;
+      } else {
+        m1Candles.push({ open: price, high: price, low: price, close: price, epoch: candleEpoch });
+        if (m1Candles.length > 300) m1Candles.shift();
+      }
+      dataReceived = true;
+      setConnState(true, 'live');
+      recomputeM1();
+    }
+  };
+
+  ws.onclose = () => {
+    setConnState(false, 'reconnecting');
+    subscribedTicks = false;
+    dataReceived = false;
+    setTimeout(connect, 3000);
+  };
+
+  ws.onerror = () => { ws.close(); };
+}
+
+function buildDropdownOptions(list){
+  symbolSelect.innerHTML = '';
+  list.forEach(v => {
+    const opt = document.createElement('option');
+    opt.value = v.symbol;
+    opt.textContent = v.name;
+    symbolSelect.appendChild(opt);
+  });
+  symbolSelect.disabled = false;
+}
+
+function sortVolList(symbols){
+  return symbols
+    .filter(s => /^Volatility/i.test(s.display_name))
+    .map(s => ({ symbol: s.symbol, name: s.display_name, is1s: /\(1s\)/i.test(s.display_name), num: parseInt(s.display_name.replace(/\D+/g, ''), 10) || 0 }))
+    .sort((a, b) => (a.is1s - b.is1s) || (a.num - b.num));
+}
+
+function initialSymbolSetup(symbols){
+  const vols = sortVolList(symbols);
+  buildDropdownOptions(vols);
+
+  const preferred = vols.find(v => v.symbol === '1HZ90V') || vols[0];
+  if (preferred) {
+    symbolSelect.value = preferred.symbol;
+    SYMBOL = preferred.symbol;
+    DISPLAY_NAME = preferred.name;
+    mainTitle.textContent = `${DISPLAY_NAME} — H1 BIAS / M1 SNIPER (P.A.T.+ICT+RETEST)`;
+    subLine.textContent = `${DISPLAY_NAME} · Structure on H1 for trend, BOS/CHoCH + multi-zone retest confirmation on M1 for entry timing`;
+  }
+}
+
+function upgradeDropdownFromLive(symbols){
+  const vols = sortVolList(symbols);
+  if (!vols.length) return;
+  const currentValue = SYMBOL;
+  buildDropdownOptions(vols);
+  const stillPresent = vols.some(v => v.symbol === currentValue);
+  if (stillPresent) {
+    symbolSelect.value = currentValue;
+  } else if (vols[0]) {
+    symbolSelect.value = vols[0].symbol;
+    SYMBOL = vols[0].symbol;
+    DISPLAY_NAME = vols[0].name;
+    loadSymbol(SYMBOL);
+  }
+}
+
+symbolSelect.addEventListener('change', () => {
+  SYMBOL = symbolSelect.value;
+  DISPLAY_NAME = symbolSelect.options[symbolSelect.selectedIndex].textContent;
+  loadSymbol(SYMBOL);
+});
+
+function loadSymbol(sym){
+  mainTitle.textContent = `${DISPLAY_NAME} — H1 BIAS / M1 SNIPER (P.A.T.+ICT+RETEST)`;
+  subLine.textContent = `${DISPLAY_NAME} · Structure on H1 for trend, BOS/CHoCH + multi-zone retest confirmation on M1 for entry timing`;
+
+  if (subscribedTicks) ws.send(JSON.stringify({ forget_all: "ticks" }));
+  subscribedTicks = false;
+  dataReceived = false;
+  h1Candles = [];
+  m1Candles = [];
+  h1Zone = 'NEUTRAL';
+  m1Zone = 'NEUTRAL';
+  activeTrade = null;
+  pendingSetup = null;
+  renderIdleBanner();
+  document.getElementById('h1Price').textContent = '—';
+  document.getElementById('h1SwingHigh').textContent = '—';
+  document.getElementById('h1SwingLow').textContent = '—';
+  document.getElementById('m1Price').textContent = '—';
+  document.getElementById('m1SwingHigh').textContent = '—';
+  document.getElementById('m1SwingLow').textContent = '—';
+  document.getElementById('m1BreakType').textContent = '—';
+  document.getElementById('m1Sweep').textContent = '—';
+  document.getElementById('m1Zones').textContent = '—';
+  setConnState(false, 'loading ' + sym);
+
+  fetchCandles(GRAN_H1, 200);
+  fetchCandles(GRAN_M1, 200);
+}
+
+function fetchCandles(granularity, count){
+  ws.send(JSON.stringify({
+    ticks_history: SYMBOL,
+    adjust_start_time: 1,
+    count: count,
+    end: "latest",
+    granularity: granularity,
+    style: "candles"
+  }));
+}
+
+//------------------------------------------------------------------
+// Notifications: browser Notification API + beep
+//------------------------------------------------------------------
+const notifyBtn = document.getElementById('notifyBtn');
+
+function refreshNotifyBtn(){
+  if (!('Notification' in window)) {
+    notifyBtn.textContent = '🔕 NOT SUPPORTED — ADD TO HOME SCREEN (iOS)';
+    notifyBtn.disabled = true;
+    return;
+  }
+  if (Notification.permission === 'granted') {
+    notifyBtn.textContent = '✅ NOTIFICATIONS ON';
+  } else if (Notification.permission === 'denied') {
+    notifyBtn.textContent = '🔕 BLOCKED — ENABLE IN BROWSER SETTINGS';
+  } else {
+    notifyBtn.textContent = '🔔 ENABLE NOTIFICATIONS';
+  }
+}
+
+notifyBtn.addEventListener('click', () => {
+  if (!('Notification' in window)) return;
+  if (Notification.permission === 'default') {
+    Notification.requestPermission().then(refreshNotifyBtn);
+  }
+});
+
+refreshNotifyBtn();
+
+let audioCtx = null;
+function playBeep(){
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.connect(g); g.connect(audioCtx.destination);
+    o.frequency.value = 880;
+    g.gain.setValueAtTime(0.15, audioCtx.currentTime);
+    o.start();
+    o.stop(audioCtx.currentTime + 0.18);
+  } catch (e) {}
+}
+
+function fireAlert(title, body){
+  playBeep();
+  if ('Notification' in window && Notification.permission === 'granted') {
+    try { new Notification(title, { body }); } catch (e) { console.warn('Notification failed:', e); }
+  }
+  sendTelegram(`${title}\n${body}`);
+}
+
+//------------------------------------------------------------------
+// Telegram config + sender
+//------------------------------------------------------------------
+const tgToken = document.getElementById('tgToken');
+const tgChatId = document.getElementById('tgChatId');
+const tgStatus = document.getElementById('tgStatus');
+
+tgToken.value = localStorage.getItem('tg_token') || '';
+tgChatId.value = localStorage.getItem('tg_chat_id') || '';
+
+document.getElementById('tgSaveBtn').addEventListener('click', () => {
+  localStorage.setItem('tg_token', tgToken.value.trim());
+  localStorage.setItem('tg_chat_id', tgChatId.value.trim());
+  tgStatus.textContent = 'Saved.';
+  tgStatus.style.color = 'var(--green)';
+});
+
+document.getElementById('tgTestBtn').addEventListener('click', () => {
+  sendTelegram('✅ Test alert from your P.A.T.+ICT+Retest dashboard.');
+});
+
+function sendTelegram(text){
+  const token = (tgToken.value || localStorage.getItem('tg_token') || '').trim();
+  const chatId = (tgChatId.value || localStorage.getItem('tg_chat_id') || '').trim();
+  if (!token || !chatId) {
+    tgStatus.textContent = 'Add a bot token and chat ID first.';
+    tgStatus.style.color = 'var(--amber)';
+    return;
+  }
+  fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chat_id: chatId, text })
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.ok) {
+      tgStatus.textContent = 'Sent ✓';
+      tgStatus.style.color = 'var(--green)';
+    } else {
+      tgStatus.textContent = 'Telegram error: ' + (data.description || 'unknown');
+      tgStatus.style.color = 'var(--red)';
+    }
+  })
+  .catch(err => {
+    tgStatus.textContent = 'Send failed: ' + err.message;
+    tgStatus.style.color = 'var(--red)';
+  });
+}
+
+//------------------------------------------------------------------
+// Structure engine: fractal swings + BOS/CHoCH + liquidity sweep + recent swing points (for trendline)
+// NOTE: kept in sync by hand with strategy_core.mjs (see comment at top of that file).
+//------------------------------------------------------------------
+function computeStructure(candles, lb, atrForSweep){
+  const n = candles.length;
+  if (n < lb * 2 + 3) {
+    return { state: 0, barsSinceBos: 999, lastSwingHigh: null, lastSwingLow: null, breakType: null, impulseStart: null, impulseExtreme: null, sweep: false, recentSwingHighs: [], recentSwingLows: [] };
+  }
+
+  const swings = [];
+  for (let i = lb; i < n - lb; i++) {
+    let isHigh = true, isLow = true;
+    for (let k = 1; k <= lb; k++) {
+      if (candles[i].high <= candles[i - k].high || candles[i].high <= candles[i + k].high) isHigh = false;
+      if (candles[i].low  >= candles[i - k].low  || candles[i].low  >= candles[i + k].low)  isLow = false;
+      if (!isHigh && !isLow) break;
+    }
+    if (isHigh) swings.push({ confirmedAt: i + lb, type: 'H', price: candles[i].high, idx: i });
+    if (isLow)  swings.push({ confirmedAt: i + lb, type: 'L', price: candles[i].low, idx: i });
+  }
+  swings.sort((a, b) => a.confirmedAt - b.confirmedAt);
+
+  let lastSwingHigh = null, lastSwingLow = null;
+  let swingHighsSoFar = [], swingLowsSoFar = [];
+  let state = 0, lastBosIndex = -1, breakType = null, impulseStart = null, impulseExtreme = null, sweep = false;
+  let ptr = 0;
+  const tol = (atrForSweep || 0) * 0.3;
+
+  for (let i = 0; i < n; i++) {
+    while (ptr < swings.length && swings[ptr].confirmedAt <= i) {
+      const s = swings[ptr];
+      if (s.type === 'H') { lastSwingHigh = s.price; swingHighsSoFar.push({ idx: s.idx, price: s.price }); }
+      else { lastSwingLow = s.price; swingLowsSoFar.push({ idx: s.idx, price: s.price }); }
+      ptr++;
+    }
+    if (i > 0) {
+      const c = candles[i].close;
+      const brokeLow = lastSwingLow !== null && c < lastSwingLow;
+      const brokeHigh = lastSwingHigh !== null && c > lastSwingHigh;
+
+      if (brokeLow) {
+        const oldState = state;
+        const brokenLevel = lastSwingLow;
+        const priorLow = swingLowsSoFar.length >= 2 ? swingLowsSoFar[swingLowsSoFar.length - 2].price : null;
+        sweep = priorLow !== null && Math.abs(brokenLevel - priorLow) <= tol;
+        breakType = oldState === -1 ? 'BOS' : 'CHOCH';
+        state = -1;
+        lastBosIndex = i;
+        impulseStart = brokenLevel;
+        impulseExtreme = candles[i].low;
+        lastSwingLow = null;
+      } else if (brokeHigh) {
+        const oldState = state;
+        const brokenLevel = lastSwingHigh;
+        const priorHigh = swingHighsSoFar.length >= 2 ? swingHighsSoFar[swingHighsSoFar.length - 2].price : null;
+        sweep = priorHigh !== null && Math.abs(brokenLevel - priorHigh) <= tol;
+        breakType = oldState === 1 ? 'BOS' : 'CHOCH';
+        state = 1;
+        lastBosIndex = i;
+        impulseStart = brokenLevel;
+        impulseExtreme = candles[i].high;
+        lastSwingHigh = null;
+      } else if (lastBosIndex !== -1) {
+        if (state === 1 && lastSwingHigh === null) impulseExtreme = Math.max(impulseExtreme, candles[i].high);
+        else if (state === -1 && lastSwingLow === null) impulseExtreme = Math.min(impulseExtreme, candles[i].low);
+      }
+    }
+  }
+
+  const barsSinceBos = lastBosIndex === -1 ? 999 : (n - 1 - lastBosIndex);
+  return {
+    state, barsSinceBos, lastSwingHigh, lastSwingLow, breakType, impulseStart, impulseExtreme, sweep,
+    recentSwingHighs: swingHighsSoFar.slice(-2),
+    recentSwingLows: swingLowsSoFar.slice(-2)
+  };
+}
+
+function computeATR(candles, period){
+  if (candles.length < period + 1) return null;
+  const trs = [];
+  for (let i = candles.length - period; i < candles.length; i++){
+    const c = candles[i], prev = candles[i - 1];
+    trs.push(Math.max(c.high - c.low, Math.abs(c.high - prev.close), Math.abs(c.low - prev.close)));
+  }
+  return trs.reduce((a,b) => a+b, 0) / period;
+}
+
+function computeOTE(direction, impulseStart, impulseExtreme){
+  if (impulseStart === null || impulseExtreme === null) return null;
+  const range = Math.abs(impulseExtreme - impulseStart);
+  if (range === 0) return null;
+  if (direction === 'BUY') {
+    return { low: impulseExtreme - range * 0.79, high: impulseExtreme - range * 0.618 };
+  }
+  return { low: impulseExtreme + range * 0.618, high: impulseExtreme + range * 0.79 };
+}
+
+function computeSL(direction, impulseStart, atr, bufferMult){
+  if (impulseStart === null || atr === null) return null;
+  const buffer = atr * bufferMult;
+  return direction === 'BUY' ? impulseStart - buffer : impulseStart + buffer;
+}
+
+// FIX (2026-09-17, part 1): the "strong momentum" branch of isConfirmationCandle can
+// accept an entry as far as zoneLow = impulseStart - atr*0.3 (BUY case; mirrored for
+// SELL), while computeSL's default buffer (0.2) sits closer to impulseStart than that.
+// That let a momentum-candle entry land beyond its own stop-loss, arming a "SNIPER
+// ENTRY" that was already invalidated the instant it triggered.
+//
+// FIX (2026-09-17, part 2): a sign check alone wasn't enough — entries barely on the
+// correct side of sl (risk of a few hundredths of a point) are just as degenerate.
+// Now also require the risk to clear a minimum fraction of ATR.
+function isValidEntry(direction, entryPrice, sl, atr, minRiskAtrFraction){
+  if (minRiskAtrFraction === undefined) minRiskAtrFraction = 0.15;
+  if (entryPrice === null || sl === null || !Number.isFinite(entryPrice) || !Number.isFinite(sl)) return false;
+  const correctSide = direction === 'BUY' ? entryPrice > sl : entryPrice < sl;
+  if (!correctSide) return false;
+  if (atr === null || !Number.isFinite(atr) || atr <= 0) return false;
+  const risk = Math.abs(entryPrice - sl);
+  return risk >= atr * minRiskAtrFraction;
+}
+
+function projectTrendline(points, atIdx){
+  if (!points || points.length < 2) return null;
+  const a = points[points.length - 2], b = points[points.length - 1];
+  if (b.idx === a.idx) return null;
+  const slope = (b.price - a.price) / (b.idx - a.idx);
+  return b.price + slope * (atIdx - b.idx);
+}
+
+function getCandidateZones(direction, m1res, atr, currentIdx){
+  const zones = [];
+  const tol = atr * 0.3;
+  const ote = computeOTE(direction, m1res.impulseStart, m1res.impulseExtreme);
+  if (ote) zones.push({ type: 'OTE', low: ote.low, high: ote.high });
+  if (m1res.impulseStart !== null) {
+    zones.push({ type: 'Broken level', low: m1res.impulseStart - tol, high: m1res.impulseStart + tol });
+  }
+  if (direction === 'SELL' && m1res.recentSwingHighs.length >= 2) {
+    const proj = projectTrendline(m1res.recentSwingHighs, currentIdx);
+    if (proj !== null) zones.push({ type: 'Trendline', low: proj - tol, high: proj + tol });
+  }
+  if (direction === 'BUY' && m1res.recentSwingLows.length >= 2) {
+    const proj = projectTrendline(m1res.recentSwingLows, currentIdx);
+    if (proj !== null) zones.push({ type: 'Trendline', low: proj - tol, high: proj + tol });
+  }
+  return zones;
+}
+
+function isConfirmationCandle(candle, direction, zoneLow, zoneHigh, atr){
+  if (!candle) return false;
+  const touchedZone = candle.high >= zoneLow && candle.low <= zoneHigh;
+  if (!touchedZone) return false;
+  const bodySize = Math.abs(candle.close - candle.open);
+  const strongCandle = bodySize >= atr * 0.5;
+  if (direction === 'SELL') {
+    const wickRejection = candle.high >= zoneLow && candle.close < zoneLow;
+    const strongMomentum = strongCandle && candle.close < candle.open && candle.close <= zoneHigh;
+    return wickRejection || strongMomentum;
+  }
+  const wickRejection = candle.low <= zoneHigh && candle.close > zoneHigh;
+  const strongMomentum = strongCandle && candle.close > candle.open && candle.close >= zoneLow;
+  return wickRejection || strongMomentum;
+}
+
+function structureToValue(res, decayPerBar){
+  if (!res || res.state === 0) return 50;
+  const bars = Math.min(res.barsSinceBos, 100);
+  if (res.state === 1) return Math.max(50, 92 - decayPerBar * bars);
+  return Math.min(50, 8 + decayPerBar * bars);
+}
+
+function zoneOf(value){
+  if (value >= 60) return 'BUY';
+  if (value <= 40) return 'SELL';
+  return 'NEUTRAL';
+}
+
+function labelAndColor(value, res){
+  if (!res || res.state === 0) return ['NO STRUCTURE', '#5f7d92'];
+  if (res.state === 1) return value >= 75 ? ['BULLISH BOS', '#3ddc84'] : ['BULLISH (AGING)', '#7be0a0'];
+  return value <= 25 ? ['BEARISH BOS', '#ff4d4d'] : ['BEARISH (AGING)', '#ffb020'];
+}
+
+function updateGaugeVisual(prefix, value, res){
+  const deg = (value / 100) * 180;
+  document.getElementById(prefix + 'Needle').setAttribute('transform', `rotate(${deg},340,260)`);
+  document.getElementById(prefix + 'ValLabel').textContent = Math.round(value);
+  const [label, color] = labelAndColor(value, res);
+  const statusEl = document.getElementById(prefix + 'StatusLabel');
+  statusEl.textContent = label;
+  statusEl.setAttribute('fill', color);
+  document.getElementById(prefix + 'ValLabel').setAttribute('fill', color);
+}
+
+function recomputeH1(){
+  const price = h1Candles[h1Candles.length - 1]?.close;
+  if (price !== undefined) document.getElementById('h1Price').textContent = price.toFixed(3);
+  const res = computeStructure(h1Candles, lookback);
+  document.getElementById('h1SwingHigh').textContent = res.lastSwingHigh !== null ? res.lastSwingHigh.toFixed(3) : '—';
+  document.getElementById('h1SwingLow').textContent  = res.lastSwingLow  !== null ? res.lastSwingLow.toFixed(3)  : '—';
+  if (h1Candles.length < lookback * 2 + 3) return;
+  const value = structureToValue(res, H1_DECAY_PER_BAR);
+  updateGaugeVisual('h1', value, res);
+  h1Zone = zoneOf(value);
+}
+
+function recomputeM1(){
+  const price = m1Candles[m1Candles.length - 1]?.close;
+  if (price !== undefined) document.getElementById('m1Price').textContent = price.toFixed(3);
+  const atr = computeATR(m1Candles, ATR_PERIOD);
+  const res = computeStructure(m1Candles, lookback, atr);
+  document.getElementById('m1SwingHigh').textContent = res.lastSwingHigh !== null ? res.lastSwingHigh.toFixed(3) : '—';
+  document.getElementById('m1SwingLow').textContent  = res.lastSwingLow  !== null ? res.lastSwingLow.toFixed(3)  : '—';
+  document.getElementById('m1BreakType').textContent = res.breakType || '—';
+  document.getElementById('m1Sweep').textContent = res.breakType ? (res.sweep ? 'YES' : 'no') : '—';
+  if (m1Candles.length < lookback * 2 + 3) return;
+  const value = structureToValue(res, M1_DECAY_PER_BAR);
+  updateGaugeVisual('m1', value, res);
+  m1Zone = zoneOf(value);
+  manageTrade(res, atr);
+}
+
+function renderIdleBanner(){
+  const banner = document.getElementById('sniperBanner');
+  const sub = banner.querySelector('.sniper-sub');
+  const stats = document.getElementById('tpStats');
+  banner.classList.remove('buy', 'sell', 'tp', 'sl', 'armed');
+  banner.firstChild.textContent = 'NO ALIGNMENT — WAIT ';
+  sub.textContent = 'H1 trend and M1 timing are not agreeing';
+  stats.style.display = 'none';
+  document.getElementById('m1Zones').textContent = '—';
+}
+
+function renderArmedBanner(zones){
+  const banner = document.getElementById('sniperBanner');
+  const sub = banner.querySelector('.sniper-sub');
+  banner.classList.remove('buy', 'sell', 'tp', 'sl');
+  banner.classList.add('armed');
+  banner.firstChild.textContent = `ARMED: ${pendingSetup.direction} — WAITING FOR CONFIRMATION `;
+  const tag = pendingSetup.breakType === 'CHOCH' ? 'CHoCH' : 'BOS';
+  const sweepTag = pendingSetup.sweep ? ' + liquidity sweep' : '';
+  const zoneText = (zones && zones.length)
+    ? zones.map(z => `${z.type} ${z.low.toFixed(3)}–${z.high.toFixed(3)}`).join(' · ')
+    : 'computing zones…';
+  sub.textContent = `${tag}${sweepTag} · watching for wick rejection or strong candle at: ${zoneText}`;
+  document.getElementById('m1Zones').textContent = (zones && zones.length) ? zones.map(z => z.type).join(', ') : '—';
+}
+
+function manageTrade(m1res, atr){
+  const banner = document.getElementById('sniperBanner');
+  const sub = banner.querySelector('.sniper-sub');
+  const stats = document.getElementById('tpStats');
+  const price = m1Candles[m1Candles.length - 1]?.close;
+  if (price === undefined) return;
+
+  // --- Managing an already-triggered trade ---
+  if (activeTrade) {
+    const hitSL = activeTrade.direction === 'BUY' ? price <= activeTrade.sl : price >= activeTrade.sl;
+    if (hitSL) {
+      fireAlert(`🛑 SL HIT — Exit ${activeTrade.direction}`, `${DISPLAY_NAME}: stopped out at ${price.toFixed(3)} (SL ${activeTrade.sl.toFixed(3)})`);
+      banner.classList.remove('buy','sell','armed');
+      banner.classList.add('sl');
+      banner.firstChild.textContent = `SL HIT — EXIT ${activeTrade.direction} `;
+      sub.textContent = `Stopped out at ${price.toFixed(3)}`;
+      activeTrade = null;
+      stats.style.display = 'none';
+      return;
+    }
+
+    const favorable = (target) => activeTrade.direction === 'BUY' ? price >= target : price <= target;
+
+    if (!activeTrade.hit1 && favorable(activeTrade.tp1)) {
+      activeTrade.hit1 = true;
+      document.getElementById('tp1Stat').classList.add('hit');
+      fireAlert(`✅ TP1 HIT — ${activeTrade.direction}`, `${DISPLAY_NAME}: TP1 reached at ${price.toFixed(3)}`);
+    }
+    if (!activeTrade.hit2 && favorable(activeTrade.tp2)) {
+      activeTrade.hit2 = true;
+      document.getElementById('tp2Stat').classList.add('hit');
+      fireAlert(`✅ TP2 HIT — ${activeTrade.direction}`, `${DISPLAY_NAME}: TP2 reached at ${price.toFixed(3)}`);
+    }
+    if (!activeTrade.hit3 && favorable(activeTrade.tp3)) {
+      activeTrade.hit3 = true;
+      document.getElementById('tp3Stat').classList.add('hit');
+      fireAlert(`✅ TP3 HIT — FULL EXIT ${activeTrade.direction}`, `${DISPLAY_NAME}: TP3 reached at ${price.toFixed(3)} — setup complete`);
+      banner.classList.remove('buy','sell','armed');
+      banner.classList.add('tp');
+      banner.firstChild.textContent = `TP3 HIT — EXIT ${activeTrade.direction} `;
+      sub.textContent = `All targets reached at ${price.toFixed(3)}`;
+      activeTrade = null;
+      stats.style.display = 'none';
+      return;
+    }
+
+    sub.textContent = `Last ${price.toFixed(3)} · holding ${activeTrade.direction} · SL ${activeTrade.sl.toFixed(3)}`;
+    return;
+  }
+
+  // --- No active trade: manage the pending (armed) setup ---
+  const isFreshBreakThisBar = m1res.barsSinceBos === 0 && m1res.breakType !== null;
+  const m1Direction = m1res.state === 1 ? 'BUY' : m1res.state === -1 ? 'SELL' : null;
+
+  if (isFreshBreakThisBar && m1Direction && h1Zone === m1Direction) {
+    pendingSetup = { direction: m1Direction, breakType: m1res.breakType, sweep: m1res.sweep, impulseStart: m1res.impulseStart };
+  } else if (pendingSetup) {
+    if (h1Zone !== pendingSetup.direction) {
+      pendingSetup = null;
+    } else if (m1Direction && m1Direction !== pendingSetup.direction) {
+      pendingSetup = null;
+    }
+  }
+
+  if (pendingSetup) {
+    const closedCandle = m1Candles.length >= 2 ? m1Candles[m1Candles.length - 2] : null;
+    const zones = atr ? getCandidateZones(pendingSetup.direction, m1res, atr, m1Candles.length - 1) : [];
+    let triggeredZone = null;
+    if (atr) {
+      for (const z of zones) {
+        if (isConfirmationCandle(closedCandle, pendingSetup.direction, z.low, z.high, atr)) { triggeredZone = z; break; }
+      }
+    }
+    if (triggeredZone && closedCandle && atr) {
+      const dir = pendingSetup.direction;
+      const step = atr * tpStep;
+      const sign = dir === 'BUY' ? 1 : -1;
+      const entryPrice = closedCandle.close;
+      const sl = computeSL(dir, pendingSetup.impulseStart, atr, slBufferMult);
+
+      // FIX: don't arm a trade whose entry is already past its own stop, or whose
+      // risk distance is too small to be real. See isValidEntry doc comment above.
+      if (!isValidEntry(dir, entryPrice, sl, atr)) {
+        pendingSetup = null;
+        renderIdleBanner();
+        return;
+      }
+
+      const tag = pendingSetup.breakType === 'CHOCH' ? 'CHoCH' : 'BOS';
+      const sweepTag = pendingSetup.sweep ? ' + liquidity sweep' : '';
+      activeTrade = {
+        direction: dir, entryPrice, sl,
+        tp1: entryPrice + sign * step, tp2: entryPrice + sign * 2 * step, tp3: entryPrice + sign * 3 * step,
+        hit1: false, hit2: false, hit3: false
+      };
+      stats.style.display = 'flex';
+      document.getElementById('slStat').textContent = sl.toFixed(3);
+      document.getElementById('entryStat').textContent = entryPrice.toFixed(3);
+      document.getElementById('tp1Stat').textContent = activeTrade.tp1.toFixed(3);
+      document.getElementById('tp2Stat').textContent = activeTrade.tp2.toFixed(3);
+      document.getElementById('tp3Stat').textContent = activeTrade.tp3.toFixed(3);
+      ['tp1Stat','tp2Stat','tp3Stat'].forEach(id => document.getElementById(id).classList.remove('hit'));
+      banner.classList.remove('armed','tp','sl');
+      banner.classList.add(dir === 'BUY' ? 'buy' : 'sell');
+      banner.firstChild.textContent = `SNIPER ENTRY: ${dir} `;
+      sub.textContent = `${tag}${sweepTag} · ${triggeredZone.type} retest confirmed · SL ${sl.toFixed(3)}`;
+      fireAlert(`🎯 SNIPER ENTRY: ${dir} (${tag}${sweepTag})`, `${DISPLAY_NAME}: entry ${entryPrice.toFixed(3)} on ${triggeredZone.type} retest\nSL ${sl.toFixed(3)} · TP1 ${activeTrade.tp1.toFixed(3)} · TP2 ${activeTrade.tp2.toFixed(3)} · TP3 ${activeTrade.tp3.toFixed(3)}`);
+      pendingSetup = null;
+      return;
+    }
+    renderArmedBanner(zones);
+    return;
+  }
+
+  renderIdleBanner();
+}
+
+setInterval(() => { if (ws && ws.readyState === WebSocket.OPEN && SYMBOL) fetchCandles(GRAN_H1, 200); }, H1_REFRESH_MS);
+
+connect();
+</script>
+</body>
+</html>
