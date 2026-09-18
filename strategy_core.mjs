@@ -161,12 +161,20 @@ export function isConfirmationCandle(candle, direction, zoneLow, zoneHigh, atr) 
 // Bug found 2026-09-17 (part 2, after re-running with the part-1 fix live): a sign
 // check alone isn't enough. Entries just barely on the CORRECT side of sl (e.g. risk
 // of 0.05 points on an instrument trading near 19,000) are just as degenerate — the
-// same near-zero-denominator problem, just without crossing to negative. The zone
-// tolerance (atr*0.3) and SL buffer (atr*0.2) sit close enough together that entries
-// landing in that narrow band produce unrealistically small, unfilled-by-real-slippage
-// risk distances. So isValidEntry also requires the risk to clear a minimum fraction
-// of ATR — not just a sign check — before a trade is allowed to open.
-export function isValidEntry(direction, entryPrice, sl, atr, minRiskAtrFraction = 0.15) {
+// same near-zero-denominator problem, just without crossing to negative. So a minimum
+// risk floor (as a fraction of ATR) was added here.
+//
+// Bug found 2026-09-18 (part 3, after re-running with a 0.15*ATR floor): that floor
+// was picked without evidence and was miscalibrated — it rejected ALL 842 confirmed
+// setups in the next run (0 signals fired). Root cause: computeSL places the stop only
+// SL_BUFFER*ATR (default 0.2) beyond impulseStart, and a "retest" entry is BY DESIGN
+// meant to happen close to impulseStart — so legitimate entries and the stop are
+// naturally close together. A 0.15*ATR floor turns out to reject most of the intended
+// entry range, not just the degenerate sliver near zero. The floor default is lowered
+// here to something far less aggressive, but the right value should be set from real
+// data, not guessed twice in a row — see the risk/ATR distribution now logged in
+// backtest.mjs's funnel diagnostics, and retune minRiskAtrFraction from that.
+export function isValidEntry(direction, entryPrice, sl, atr, minRiskAtrFraction = 0.02) {
   if (entryPrice === null || sl === null || !Number.isFinite(entryPrice) || !Number.isFinite(sl)) return false;
   const correctSide = direction === 'BUY' ? entryPrice > sl : entryPrice < sl;
   if (!correctSide) return false;
