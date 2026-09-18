@@ -99,12 +99,13 @@ export function computeOTE(direction, impulseStart, impulseExtreme) {
   return { low: impulseExtreme + range * 0.618, high: impulseExtreme + range * 0.79 };
 }
 
-// Structural stop-loss: just beyond the swing point that broke (the setup's invalidation point),
-// with a small buffer so a routine wick back to the exact level doesn't stop it out prematurely.
-export function computeSL(direction, impulseStart, atr, bufferMult = 0.2) {
-  if (impulseStart === null || atr === null) return null;
-  const buffer = atr * bufferMult;
-  return direction === 'BUY' ? impulseStart - buffer : impulseStart + buffer;
+// Stop-loss: an ATR-multiple away from the actual entry price, matching how TP1/2/3 are sized.
+// (Earlier version anchored SL to impulseStart, but that collapses to near-zero risk for
+// "Broken level" zone entries, where entry sits almost exactly at impulseStart already.)
+export function computeSL(direction, entryPrice, atr, slAtrMult = 1) {
+  if (entryPrice === null || atr === null) return null;
+  const dist = atr * slAtrMult;
+  return direction === 'BUY' ? entryPrice - dist : entryPrice + dist;
 }
 
 export function projectTrendline(points, atIdx) {
@@ -149,40 +150,6 @@ export function isConfirmationCandle(candle, direction, zoneLow, zoneHigh, atr) 
   const strongMomentum = strongCandle && candle.close > candle.open && candle.close >= zoneLow;
   return wickRejection || strongMomentum;
 }
-
-// --- FIX: entry/SL sanity check -------------------------------------------------
-// Bug found 2026-09-17 (part 1): isConfirmationCandle's "strong momentum" branch can
-// accept an entry as low as zoneLow = impulseStart - atr*0.3 (BUY case; mirrored for
-// SELL). computeSL's default buffer (0.2) is smaller than the zone tolerance (0.3),
-// so a momentum-candle entry can land BEYOND its own stop-loss — entryPrice already
-// on the wrong side of sl the instant the trade opens. A pure sign check (entry vs
-// sl) catches that case.
-//
-// Bug found 2026-09-17 (part 2, after re-running with the part-1 fix live): a sign
-// check alone isn't enough. Entries just barely on the CORRECT side of sl (e.g. risk
-// of 0.05 points on an instrument trading near 19,000) are just as degenerate — the
-// same near-zero-denominator problem, just without crossing to negative. So a minimum
-// risk floor (as a fraction of ATR) was added here.
-//
-// Bug found 2026-09-18 (part 3, after re-running with a 0.15*ATR floor): that floor
-// was picked without evidence and was miscalibrated — it rejected ALL 842 confirmed
-// setups in the next run (0 signals fired). Root cause: computeSL places the stop only
-// SL_BUFFER*ATR (default 0.2) beyond impulseStart, and a "retest" entry is BY DESIGN
-// meant to happen close to impulseStart — so legitimate entries and the stop are
-// naturally close together. A 0.15*ATR floor turns out to reject most of the intended
-// entry range, not just the degenerate sliver near zero. The floor default is lowered
-// here to something far less aggressive, but the right value should be set from real
-// data, not guessed twice in a row — see the risk/ATR distribution now logged in
-// backtest.mjs's funnel diagnostics, and retune minRiskAtrFraction from that.
-export function isValidEntry(direction, entryPrice, sl, atr, minRiskAtrFraction = 0.02) {
-  if (entryPrice === null || sl === null || !Number.isFinite(entryPrice) || !Number.isFinite(sl)) return false;
-  const correctSide = direction === 'BUY' ? entryPrice > sl : entryPrice < sl;
-  if (!correctSide) return false;
-  if (atr === null || !Number.isFinite(atr) || atr <= 0) return false;
-  const risk = Math.abs(entryPrice - sl);
-  return risk >= atr * minRiskAtrFraction;
-}
-// ----------------------------------------------------------------------------------
 
 export function structureToValue(res, decayPerBar) {
   if (!res || res.state === 0) return 50;
