@@ -3,12 +3,57 @@
   "historyDays": 30,
   "lookback": 5,
   "tpStep": 1,
-  "totalSignals": 0,
-  "winRate": 0,
-  "avgR": 0,
-  "medianR": 0,
-  "invalidEntriesRejected": 842,
-  "byZoneType": [],
-  "byBreakType": [],
-  "bySweep": []
+  "totalSignals": 630,
+  "winRate": 47.14285714285714,
+  "avgR": 1.7247002161596248,
+  "medianR": -1.4161995919697827,
+  "invalidEntriesRejected": 125,
+  "byZoneType": [
+    {
+      "zoneType": "Broken level",
+      "count": 207,
+      "winRate": "55.6%",
+      "avgR": "5.04"
+    },
+    {
+      "zoneType": "OTE",
+      "count": 418,
+      "winRate": "43.1%",
+      "avgR": "-0.19"
+    },
+    {
+      "zoneType": "Trendline",
+      "count": 5,
+      "winRate": "40.0%",
+      "avgR": "24.79"
+    }
+  ],
+  "byBreakType": [
+    {
+      "breakType": "BOS",
+      "count": 297,
+      "winRate": "46.1%",
+      "avgR": "1.12"
+    },
+    {
+      "breakType": "CHOCH",
+      "count": 333,
+      "winRate": "48.0%",
+      "avgR": "2.26"
+    }
+  ],
+  "bySweep": [
+    {
+      "sweep": "false",
+      "count": 542,
+      "winRate": "47.2%",
+      "avgR": "1.53"
+    },
+    {
+      "sweep": "true",
+      "count": 88,
+      "winRate": "46.6%",
+      "avgR": "2.93"
+    }
+  ]
 }
