@@ -23,6 +23,7 @@ const SYMBOL = process.env.SYMBOL || '1HZ90V';
 const LOOKBACK = parseInt(process.env.LOOKBACK || '5', 10);
 const TP_STEP = parseFloat(process.env.TP_STEP || '1');
 const SL_BUFFER = parseFloat(process.env.SL_BUFFER || '0.2');
+const MIN_RISK_ATR_FRACTION = parseFloat(process.env.MIN_RISK_ATR_FRACTION || '0.02');
 const ATR_PERIOD = parseInt(process.env.ATR_PERIOD || '14', 10);
 const HISTORY_DAYS = parseFloat(process.env.HISTORY_DAYS || '30');
 const GRAN_M1 = 60;
@@ -145,7 +146,8 @@ async function main() {
     freshM1Breaks: 0, freshBreaksMatchingH1: 0,
     pendingBarsTotal: 0, zonesComputedCount: 0, confirmationChecks: 0,
     maxPendingStreak: 0,
-    invalidEntriesRejected: 0 // NEW: confirmation candle fired but entry was already past its own SL
+    invalidEntriesRejected: 0, // NEW: confirmation candle fired but entry was already past its own SL
+    riskAtrRatios: [] // NEW: risk/ATR for every confirmation trigger, accepted or not — for calibrating the floor from real data
   };
   let currentPendingStreak = 0;
 
@@ -244,11 +246,18 @@ async function main() {
         const entryPrice = closedCandle.close;
         const sl = computeSL(dir, pendingSetup.impulseStart, atr, SL_BUFFER);
 
+        // Record risk/ATR for every trigger attempt (accepted or rejected) so the
+        // floor can be calibrated from real data instead of guessed. A negative ratio
+        // here means the sign check alone would have failed (entry past its own SL).
+        const signedRiskAtr = (dir === 'BUY' ? (entryPrice - sl) : (sl - entryPrice)) / atr;
+        diag.riskAtrRatios.push(signedRiskAtr);
+
         // FIX: reject setups where the confirmation candle's close is already past
-        // its own stop-loss (see strategy_core.mjs isValidEntry doc comment).
-        // Previously this silently opened a "trade" with near-zero or negative risk,
-        // which is what blew up the R-multiple numbers in the earlier run.
-        if (!isValidEntry(dir, entryPrice, sl)) {
+        // its own stop-loss, OR where it's on the correct side but too close to it to
+        // be a real risk distance (see strategy_core.mjs isValidEntry doc comment,
+        // parts 1 and 2). Previously this silently opened a "trade" with near-zero or
+        // negative risk, which is what blew up the R-multiple numbers in earlier runs.
+        if (!isValidEntry(dir, entryPrice, sl, atr, MIN_RISK_ATR_FRACTION)) {
           diag.invalidEntriesRejected++;
           pendingSetup = null;
         } else {
@@ -275,6 +284,20 @@ async function main() {
   console.log(`Confirmation-candle checks performed: ${diag.confirmationChecks}`);
   console.log(`Invalid entries rejected (entry already past its own SL): ${diag.invalidEntriesRejected}`);
   console.log(`Signals actually triggered: ${trades.length}`);
+
+  // Risk/ATR distribution across every trigger attempt (accepted or rejected).
+  // Use this to pick minRiskAtrFraction empirically instead of guessing.
+  if (diag.riskAtrRatios.length) {
+    const sorted = [...diag.riskAtrRatios].sort((a, b) => a - b);
+    const pct = (p) => {
+      const idx = Math.min(sorted.length - 1, Math.max(0, Math.round(p * (sorted.length - 1))));
+      return sorted[idx];
+    };
+    console.log(`\nRisk/ATR ratio distribution across ${sorted.length} trigger attempts (negative = entry already past its own SL):`);
+    console.log(`  min: ${sorted[0].toFixed(4)}  p10: ${pct(0.10).toFixed(4)}  p25: ${pct(0.25).toFixed(4)}  p50: ${pct(0.50).toFixed(4)}  p75: ${pct(0.75).toFixed(4)}  p90: ${pct(0.90).toFixed(4)}  max: ${sorted[sorted.length-1].toFixed(4)}`);
+    const negCount = sorted.filter(r => r <= 0).length;
+    console.log(`  <= 0 (would fail even a pure sign check): ${negCount}/${sorted.length} (${(negCount/sorted.length*100).toFixed(1)}%)`);
+  }
   console.log('==========================================\n');
 
   // If a trade was still open at the end of the data, close it out at last known price for scoring purposes.
