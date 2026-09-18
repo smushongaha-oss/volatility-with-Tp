@@ -151,20 +151,28 @@ export function isConfirmationCandle(candle, direction, zoneLow, zoneHigh, atr) 
 }
 
 // --- FIX: entry/SL sanity check -------------------------------------------------
-// Bug found 2026-09-17: isConfirmationCandle's "strong momentum" branch can accept
-// an entry as low as zoneLow = impulseStart - atr*0.3 (BUY case; mirrored for SELL).
-// computeSL's default buffer (0.2) is smaller than the zone tolerance (0.3), so a
-// momentum-candle entry can land BEYOND its own stop-loss — i.e. entryPrice is
-// already on the wrong side of sl the instant the trade opens. That produces a
-// near-zero (sometimes negative) risk distance, which after Math.abs() turns any
-// R-multiple calculation into a huge, meaningless number. This was misread earlier
-// as a pure R-multiple/display bug; it's actually an invalid-trade bug upstream of
-// any R math. Every caller that opens a trade MUST run entryPrice/sl through this
-// check first and discard the setup if it fails, rather than opening a trade that
-// was invalidated before it started.
-export function isValidEntry(direction, entryPrice, sl) {
+// Bug found 2026-09-17 (part 1): isConfirmationCandle's "strong momentum" branch can
+// accept an entry as low as zoneLow = impulseStart - atr*0.3 (BUY case; mirrored for
+// SELL). computeSL's default buffer (0.2) is smaller than the zone tolerance (0.3),
+// so a momentum-candle entry can land BEYOND its own stop-loss — entryPrice already
+// on the wrong side of sl the instant the trade opens. A pure sign check (entry vs
+// sl) catches that case.
+//
+// Bug found 2026-09-17 (part 2, after re-running with the part-1 fix live): a sign
+// check alone isn't enough. Entries just barely on the CORRECT side of sl (e.g. risk
+// of 0.05 points on an instrument trading near 19,000) are just as degenerate — the
+// same near-zero-denominator problem, just without crossing to negative. The zone
+// tolerance (atr*0.3) and SL buffer (atr*0.2) sit close enough together that entries
+// landing in that narrow band produce unrealistically small, unfilled-by-real-slippage
+// risk distances. So isValidEntry also requires the risk to clear a minimum fraction
+// of ATR — not just a sign check — before a trade is allowed to open.
+export function isValidEntry(direction, entryPrice, sl, atr, minRiskAtrFraction = 0.15) {
   if (entryPrice === null || sl === null || !Number.isFinite(entryPrice) || !Number.isFinite(sl)) return false;
-  return direction === 'BUY' ? entryPrice > sl : entryPrice < sl;
+  const correctSide = direction === 'BUY' ? entryPrice > sl : entryPrice < sl;
+  if (!correctSide) return false;
+  if (atr === null || !Number.isFinite(atr) || atr <= 0) return false;
+  const risk = Math.abs(entryPrice - sl);
+  return risk >= atr * minRiskAtrFraction;
 }
 // ----------------------------------------------------------------------------------
 
