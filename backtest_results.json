@@ -3,66 +3,56 @@
   "historyDays": 30,
   "lookback": 5,
   "tpStep": 1,
-  "totalSignals": 630,
-  "winRate": 47.3015873015873,
-  "avgR": 1.7445138626765653,
-  "medianR": -1.4047294989671197,
-  "avgRCapped": 2.4256825969806997,
-  "medianRCapped": -1,
-  "invalidEntriesRejected": 124,
+  "totalSignals": 674,
+  "winRate": 58.01186943620178,
+  "avgR": 0.3470272651781143,
+  "medianR": -1.1288592955698986,
   "byZoneType": [
     {
-      "zoneType": "Broken level",
-      "count": 207,
-      "winRate": "56.0%",
-      "avgR": "5.10",
-      "avgRCapped": "6.28"
+      "zoneType": "OTE",
+      "count": 374,
+      "winRate": "47.3%",
+      "avgR": "0.09"
     },
     {
-      "zoneType": "OTE",
-      "count": 418,
-      "winRate": "43.1%",
-      "avgR": "-0.19",
-      "avgRCapped": "0.32"
+      "zoneType": "Broken level",
+      "count": 233,
+      "winRate": "69.1%",
+      "avgR": "0.61"
     },
     {
       "zoneType": "Trendline",
-      "count": 5,
-      "winRate": "40.0%",
-      "avgR": "24.79",
-      "avgRCapped": "19.18"
+      "count": 67,
+      "winRate": "79.1%",
+      "avgR": "0.85"
     }
   ],
   "byBreakType": [
     {
-      "breakType": "BOS",
-      "count": 296,
-      "winRate": "46.3%",
-      "avgR": "1.14",
-      "avgRCapped": "2.04"
+      "breakType": "CHOCH",
+      "count": 383,
+      "winRate": "58.2%",
+      "avgR": "0.34"
     },
     {
-      "breakType": "CHOCH",
-      "count": 334,
-      "winRate": "48.2%",
-      "avgR": "2.28",
-      "avgRCapped": "2.77"
+      "breakType": "BOS",
+      "count": 291,
+      "winRate": "57.7%",
+      "avgR": "0.36"
     }
   ],
   "bySweep": [
     {
-      "sweep": "false",
-      "count": 542,
-      "winRate": "47.4%",
-      "avgR": "1.55",
-      "avgRCapped": "2.32"
+      "sweep": "true",
+      "count": 94,
+      "winRate": "55.3%",
+      "avgR": "0.36"
     },
     {
-      "sweep": "true",
-      "count": 88,
-      "winRate": "46.6%",
-      "avgR": "2.93",
-      "avgRCapped": "3.09"
+      "sweep": "false",
+      "count": 580,
+      "winRate": "58.4%",
+      "avgR": "0.34"
     }
   ]
 }
