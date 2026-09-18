@@ -310,6 +310,15 @@ async function main() {
   }
 
   // --- Score results ---
+  // rMultiple = raw R using the actual exit price. On an SL exit this can overshoot -1R
+  // when a single bar gaps through the stop before it could realistically be hit exactly
+  // (common on these volatility indices — see 2026-09-18 run where SL exits showed R as
+  // extreme as -60). That's a real, honest simulation of what happened to the price series,
+  // but it conflates "the strategy was wrong" with "the stop was priced too tight to fill
+  // cleanly". rMultipleCapped answers a different question: assuming a fill exactly at the
+  // SL/TP level with no slippage, what would R have been? Report both — don't silently
+  // pick one, since they tell you different things about where the edge (or lack of it)
+  // is coming from.
   function rMultiple(t) {
     const risk = Math.abs(t.entryPrice - t.sl); // actual risk taken, not the old TP1-distance proxy
     if (risk === 0) return 0;
@@ -317,16 +326,34 @@ async function main() {
     return gain / risk;
   }
 
+  function rMultipleCapped(t) {
+    const risk = Math.abs(t.entryPrice - t.sl);
+    if (risk === 0) return 0;
+    // Cap the exit at the level that was actually hit for scoring purposes. SL exits are
+    // capped at exactly -1R (idealized fill at the stop). TP3 exits are capped at the TP3
+    // target so a favorable gap doesn't inflate the win side either, keeping the comparison
+    // symmetric. Anything else (REVERSED, END_OF_DATA) is left as the real exit price, since
+    // there's no target/stop level to cap it against.
+    let cappedExitPrice = t.exitPrice;
+    if (t.exit === 'SL') cappedExitPrice = t.sl;
+    else if (t.exit === 'TP3') cappedExitPrice = t.tp3;
+    const gain = t.direction === 'BUY' ? (cappedExitPrice - t.entryPrice) : (t.entryPrice - cappedExitPrice);
+    return gain / risk;
+  }
+
   // riskUnit now matches exactly what rMultiple divides by, so the printed tables
   // and the r column can never disagree again (this mismatch was the earlier symptom).
-  const scored = trades.map(t => ({ ...t, r: rMultiple(t), riskUnit: Math.abs(t.entryPrice - t.sl) }));
+  const scored = trades.map(t => ({ ...t, r: rMultiple(t), rCapped: rMultipleCapped(t), riskUnit: Math.abs(t.entryPrice - t.sl) }));
   const wins = scored.filter(t => t.hit1);
   const total = scored.length;
   const winRate = total ? (wins.length / total * 100) : 0;
   const avgR = total ? (scored.reduce((a, t) => a + t.r, 0) / total) : 0;
+  const avgRCapped = total ? (scored.reduce((a, t) => a + t.rCapped, 0) / total) : 0;
 
   const sortedByR = [...scored].sort((a, b) => a.r - b.r);
   const medianR = total ? (total % 2 === 1 ? sortedByR[(total - 1) / 2].r : (sortedByR[total / 2 - 1].r + sortedByR[total / 2].r) / 2) : 0;
+  const sortedByRCapped = [...scored].sort((a, b) => a.rCapped - b.rCapped);
+  const medianRCapped = total ? (total % 2 === 1 ? sortedByRCapped[(total - 1) / 2].rCapped : (sortedByRCapped[total / 2 - 1].rCapped + sortedByRCapped[total / 2].rCapped) / 2) : 0;
   const worstTrades = sortedByR.slice(0, 5);
   const bestTrades = sortedByR.slice(-5).reverse();
   const sortedByRisk = [...scored].sort((a, b) => a.riskUnit - b.riskUnit);
@@ -343,7 +370,8 @@ async function main() {
       [key]: k,
       count: arr.length,
       winRate: (arr.filter(t => t.hit1).length / arr.length * 100).toFixed(1) + '%',
-      avgR: (arr.reduce((a, t) => a + t.r, 0) / arr.length).toFixed(2)
+      avgR: (arr.reduce((a, t) => a + t.r, 0) / arr.length).toFixed(2),
+      avgRCapped: (arr.reduce((a, t) => a + t.rCapped, 0) / arr.length).toFixed(2)
     }));
   }
 
@@ -351,19 +379,20 @@ async function main() {
   console.log(`Symbol: ${SYMBOL} | Period: ~${HISTORY_DAYS} days | M1 bars analyzed: ${m1All.length}`);
   console.log(`Total signals fired: ${total}`);
   console.log(`Win rate (TP1 reached): ${winRate.toFixed(1)}%`);
-  console.log(`Average R multiple: ${avgR.toFixed(2)}   Median R multiple: ${medianR.toFixed(2)}`);
+  console.log(`Average R multiple: ${avgR.toFixed(2)}   Median R multiple: ${medianR.toFixed(2)}   (raw, uses actual exit price)`);
+  console.log(`Average R (capped at SL/TP3): ${avgRCapped.toFixed(2)}   Median R (capped): ${medianRCapped.toFixed(2)}   (idealized fill, no gap-through/slippage)`);
   console.log(`TP2 reached: ${scored.filter(t=>t.hit2).length}/${total}  TP3 reached: ${scored.filter(t=>t.hit3).length}/${total}`);
   console.log(`Stopped out (SL): ${scored.filter(t=>t.exit==='SL').length}/${total}`);
   console.log(`Reversed before TP3: ${scored.filter(t=>t.exit==='REVERSED').length}/${total}`);
 
   console.log('\n-- Worst 5 trades by R (likely to reveal outlier bugs) --');
-  console.table(worstTrades.map(t => ({ direction: t.direction, zoneType: t.zoneType, entryPrice: t.entryPrice.toFixed(4), riskUnit: t.riskUnit.toFixed(6), exit: t.exit, exitPrice: t.exitPrice.toFixed(4), r: t.r.toFixed(2) })));
+  console.table(worstTrades.map(t => ({ direction: t.direction, zoneType: t.zoneType, entryPrice: t.entryPrice.toFixed(4), riskUnit: t.riskUnit.toFixed(6), exit: t.exit, exitPrice: t.exitPrice.toFixed(4), r: t.r.toFixed(2), rCapped: t.rCapped.toFixed(2) })));
   console.log('-- Best 5 trades by R --');
-  console.table(bestTrades.map(t => ({ direction: t.direction, zoneType: t.zoneType, entryPrice: t.entryPrice.toFixed(4), riskUnit: t.riskUnit.toFixed(6), exit: t.exit, exitPrice: t.exitPrice.toFixed(4), r: t.r.toFixed(2) })));
+  console.table(bestTrades.map(t => ({ direction: t.direction, zoneType: t.zoneType, entryPrice: t.entryPrice.toFixed(4), riskUnit: t.riskUnit.toFixed(6), exit: t.exit, exitPrice: t.exitPrice.toFixed(4), r: t.r.toFixed(2), rCapped: t.rCapped.toFixed(2) })));
   console.log('-- 5 smallest risk units (most likely to produce distorted R if near zero) --');
-  console.table(tiniestRiskTrades.map(t => ({ direction: t.direction, zoneType: t.zoneType, entryPrice: t.entryPrice.toFixed(4), riskUnit: t.riskUnit.toFixed(6), r: t.r.toFixed(2) })));
+  console.table(tiniestRiskTrades.map(t => ({ direction: t.direction, zoneType: t.zoneType, entryPrice: t.entryPrice.toFixed(4), riskUnit: t.riskUnit.toFixed(6), r: t.r.toFixed(2), rCapped: t.rCapped.toFixed(2) })));
 
-  console.log('\n-- By zone type --');
+  console.log('\n-- By zone type (avgR = raw, avgRCapped = idealized fill) --');
   console.table(breakdown('zoneType'));
   console.log('-- By break type --');
   console.table(breakdown('breakType'));
@@ -372,14 +401,14 @@ async function main() {
 
   fs.writeFileSync('backtest_results.json', JSON.stringify({
     symbol: SYMBOL, historyDays: HISTORY_DAYS, lookback: LOOKBACK, tpStep: TP_STEP,
-    totalSignals: total, winRate, avgR, medianR,
+    totalSignals: total, winRate, avgR, medianR, avgRCapped, medianRCapped,
     invalidEntriesRejected: diag.invalidEntriesRejected,
     byZoneType: breakdown('zoneType'), byBreakType: breakdown('breakType'), bySweep: breakdown('sweep')
   }, null, 2));
 
-  const csvHeader = 'entryEpoch,direction,zoneType,breakType,sweep,entryPrice,sl,exit,exitPrice,hit1,hit2,hit3,r\n';
+  const csvHeader = 'entryEpoch,direction,zoneType,breakType,sweep,entryPrice,sl,tp3,exit,exitPrice,hit1,hit2,hit3,r,rCapped\n';
   const csvRows = scored.map(t =>
-    `${t.entryEpoch},${t.direction},${t.zoneType},${t.breakType},${t.sweep},${t.entryPrice.toFixed(4)},${t.sl.toFixed(4)},${t.exit},${t.exitPrice.toFixed(4)},${t.hit1},${t.hit2},${t.hit3},${t.r.toFixed(3)}`
+    `${t.entryEpoch},${t.direction},${t.zoneType},${t.breakType},${t.sweep},${t.entryPrice.toFixed(4)},${t.sl.toFixed(4)},${t.tp3.toFixed(4)},${t.exit},${t.exitPrice.toFixed(4)},${t.hit1},${t.hit2},${t.hit3},${t.r.toFixed(3)},${t.rCapped.toFixed(3)}`
   ).join('\n');
   fs.writeFileSync('backtest_trades.csv', csvHeader + csvRows);
 
