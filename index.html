@@ -127,8 +127,8 @@
   <div class="selector-row">
     <label for="tpMultInput" style="white-space:nowrap;">TP STEP (&times; ATR M1)</label>
     <input type="number" id="tpMultInput" min="0.5" max="5" step="0.5" value="1">
-    <label for="slBufferInput" style="white-space:nowrap;margin-left:12px;">SL BUFFER (&times; ATR)</label>
-    <input type="number" id="slBufferInput" min="0.05" max="2" step="0.05" value="0.2">
+    <label for="slBufferInput" style="white-space:nowrap;margin-left:12px;">SL DISTANCE (&times; ATR)</label>
+    <input type="number" id="slBufferInput" min="0.25" max="3" step="0.25" value="1">
   </div>
 
   <div class="section-label">H1 — STRUCTURE / TREND BIAS</div>
@@ -185,8 +185,8 @@
   <div class="footer-note">
     P.A.T. + ICT + Retest = market-structure trading with BOS/CHoCH classification, liquidity-sweep tagging, multi-zone retest confirmation, and a real structural stop-loss.<br>
     H1 = swing-structure trend bias, fading toward neutral over time since the last break.<br>
-    M1: a fresh BOS/CHoCH matching H1 <em>arms</em> a setup. Three retest zones are then watched &mdash; the OTE Fibonacci zone, a zone around the original broken structure level, and a projected trendline from the last two swing points. The setup fires only when price touches one of these zones <strong>and</strong> the touching candle confirms with a wick rejection or a strong momentum candle, <strong>and</strong> the resulting entry price is still on the correct side of the stop-loss (see fix note in script).<br>
-    <strong>Stop-loss</strong> is placed just beyond the swing point that broke (the setup's own invalidation point), plus a small buffer (SL BUFFER &times; ATR). If price reaches SL before TP1&ndash;3, the trade closes there &mdash; losses are capped, not left open until a full structural reversal.<br>
+    M1: a fresh BOS/CHoCH matching H1 <em>arms</em> a setup. Three retest zones are then watched &mdash; the OTE Fibonacci zone, a zone around the original broken structure level, and a projected trendline from the last two swing points. The setup fires only when price touches one of these zones <strong>and</strong> the touching candle confirms with a wick rejection or a strong momentum candle.<br>
+    <strong>Stop-loss</strong> is set at SL DISTANCE &times; ATR(14) away from the confirmed entry price &mdash; the same way TP1/2/3 are sized. If price reaches SL before TP1&ndash;3, the trade closes there; losses are capped, not left open until a full structural reversal.<br>
     On trigger, three take-profit levels are set at 1&times;, 2&times;, and 3&times; the TP step (ATR(14) on M1) from the confirmed entry price. Each level alerts once when reached.<br>
     Instrument list is pulled live from Deriv. This is a monitoring/research display only &mdash; it does not place trades. Validate any strategy in the MT5 Strategy Tester before risking real funds.<br><br>
     <strong>Telegram setup:</strong> message @BotFather on Telegram, send /newbot, paste the token above.
@@ -216,7 +216,7 @@ let m1Zone = 'NEUTRAL';
 let dataReceived = false;
 let lookback = 5;
 let tpStep = 1;
-let slBufferMult = 0.2;
+let slBufferMult = 1;
 let activeTrade = null;   // { direction, entryPrice, sl, tp1, tp2, tp3, hit1, hit2, hit3 }
 let pendingSetup = null;  // { direction, breakType, sweep, impulseStart }
 
@@ -259,7 +259,7 @@ tpMultInput.addEventListener('change', () => {
 
 slBufferInput.addEventListener('change', () => {
   const v = parseFloat(slBufferInput.value);
-  slBufferMult = Number.isFinite(v) && v > 0 ? v : 0.2;
+  slBufferMult = Number.isFinite(v) && v > 0 ? v : 1;
 });
 
 function setConnState(live, label){
@@ -542,7 +542,6 @@ function sendTelegram(text){
 
 //------------------------------------------------------------------
 // Structure engine: fractal swings + BOS/CHoCH + liquidity sweep + recent swing points (for trendline)
-// NOTE: kept in sync by hand with strategy_core.mjs (see comment at top of that file).
 //------------------------------------------------------------------
 function computeStructure(candles, lb, atrForSweep){
   const n = candles.length;
@@ -638,34 +637,10 @@ function computeOTE(direction, impulseStart, impulseExtreme){
   return { low: impulseExtreme + range * 0.618, high: impulseExtreme + range * 0.79 };
 }
 
-function computeSL(direction, impulseStart, atr, bufferMult){
-  if (impulseStart === null || atr === null) return null;
-  const buffer = atr * bufferMult;
-  return direction === 'BUY' ? impulseStart - buffer : impulseStart + buffer;
-}
-
-// FIX (2026-09-17, part 1): the "strong momentum" branch of isConfirmationCandle can
-// accept an entry as far as zoneLow = impulseStart - atr*0.3 (BUY case; mirrored for
-// SELL), while computeSL's default buffer (0.2) sits closer to impulseStart than that.
-// That let a momentum-candle entry land beyond its own stop-loss, arming a "SNIPER
-// ENTRY" that was already invalidated the instant it triggered.
-//
-// FIX (2026-09-17, part 2): a sign check alone wasn't enough — entries barely on the
-// correct side of sl (risk of a few hundredths of a point) are just as degenerate.
-//
-// FIX (2026-09-18, part 3): an 0.15*ATR floor rejected essentially every real setup —
-// a "retest" entry is by design meant to land close to impulseStart, which is also
-// close to where sl sits, so most legitimate entries and a naive floor collide. Backed
-// off to a much smaller default; the backtest now logs the real risk/ATR distribution
-// so this can be tuned from data instead of guessed again.
-function isValidEntry(direction, entryPrice, sl, atr, minRiskAtrFraction){
-  if (minRiskAtrFraction === undefined) minRiskAtrFraction = 0.02;
-  if (entryPrice === null || sl === null || !Number.isFinite(entryPrice) || !Number.isFinite(sl)) return false;
-  const correctSide = direction === 'BUY' ? entryPrice > sl : entryPrice < sl;
-  if (!correctSide) return false;
-  if (atr === null || !Number.isFinite(atr) || atr <= 0) return false;
-  const risk = Math.abs(entryPrice - sl);
-  return risk >= atr * minRiskAtrFraction;
+function computeSL(direction, entryPrice, atr, slAtrMult){
+  if (entryPrice === null || atr === null) return null;
+  const dist = atr * slAtrMult;
+  return direction === 'BUY' ? entryPrice - dist : entryPrice + dist;
 }
 
 function projectTrendline(points, atIdx){
@@ -873,16 +848,7 @@ function manageTrade(m1res, atr){
       const step = atr * tpStep;
       const sign = dir === 'BUY' ? 1 : -1;
       const entryPrice = closedCandle.close;
-      const sl = computeSL(dir, pendingSetup.impulseStart, atr, slBufferMult);
-
-      // FIX: don't arm a trade whose entry is already past its own stop, or whose
-      // risk distance is too small to be real. See isValidEntry doc comment above.
-      if (!isValidEntry(dir, entryPrice, sl, atr)) {
-        pendingSetup = null;
-        renderIdleBanner();
-        return;
-      }
-
+      const sl = computeSL(dir, entryPrice, atr, slBufferMult);
       const tag = pendingSetup.breakType === 'CHOCH' ? 'CHoCH' : 'BOS';
       const sweepTag = pendingSetup.sweep ? ' + liquidity sweep' : '';
       activeTrade = {
