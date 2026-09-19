@@ -19,6 +19,14 @@ on:
         description: 'TP step multiplier (x ATR M1)'
         required: false
         default: '1'
+      exclude_zones:
+        description: 'Comma-separated zone types to exclude (e.g. OTE)'
+        required: false
+        default: ''
+      end_date:
+        description: 'Optional end date for the test window, e.g. 2026-08-19 (blank = latest)'
+        required: false
+        default: ''
 
 jobs:
   backtest:
@@ -39,6 +47,8 @@ jobs:
           HISTORY_DAYS: ${{ github.event.inputs.history_days }}
           LOOKBACK: ${{ github.event.inputs.lookback }}
           TP_STEP: ${{ github.event.inputs.tp_step }}
+          EXCLUDE_ZONES: ${{ github.event.inputs.exclude_zones }}
+          END_DATE: ${{ github.event.inputs.end_date }}
         run: node backtest.mjs
 
       - name: Commit results
