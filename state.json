@@ -1,9 +1,5 @@
 {
   "1HZ90V": {
-    "activeTrade": {
-      "direction": "SELL",
-      "entryPrice": 17312.934,
-      "tpPrice": 17244.578
-    }
+    "activeTrade": null
   }
 }
