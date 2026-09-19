@@ -20,6 +20,8 @@ const TP_STEP = parseFloat(process.env.TP_STEP || '1');
 const SL_ATR_MULT = parseFloat(process.env.SL_ATR_MULT || '1');
 const ATR_PERIOD = parseInt(process.env.ATR_PERIOD || '14', 10);
 const HISTORY_DAYS = parseFloat(process.env.HISTORY_DAYS || '30');
+const EXCLUDE_ZONES = (process.env.EXCLUDE_ZONES || '').split(',').map(s => s.trim()).filter(Boolean);
+const END_DATE = process.env.END_DATE || ''; // optional ISO date (e.g. "2026-08-19") to test a different historical window
 const GRAN_M1 = 60;
 const GRAN_H1 = 3600;
 const WINDOW = 250; // rolling window fed into computeStructure each step, matches live dashboard's practical scale
@@ -48,9 +50,9 @@ function mapCandles(raw) {
   }));
 }
 
-async function fetchHistory(ws, symbol, granularity, totalNeeded) {
+async function fetchHistory(ws, symbol, granularity, totalNeeded, startEnd) {
   let all = [];
-  let end = 'latest';
+  let end = startEnd || 'latest';
   let lastOldestEpoch = null;
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
@@ -85,20 +87,25 @@ async function fetchHistory(ws, symbol, granularity, totalNeeded) {
 function pctDiff(a, b) { return b === 0 ? 0 : (a - b) / b; }
 
 async function main() {
-  console.log(`Backtesting ${SYMBOL} — lookback=${LOOKBACK}, tpStep=${TP_STEP}, history=${HISTORY_DAYS} days\n`);
+  console.log(`Backtesting ${SYMBOL} — lookback=${LOOKBACK}, tpStep=${TP_STEP}, history=${HISTORY_DAYS} days${END_DATE ? `, ending ${END_DATE}` : ''}${EXCLUDE_ZONES.length ? `, excluding zones: ${EXCLUDE_ZONES.join(', ')}` : ''}\n`);
 
   const ws = new WebSocket(`wss://ws.derivws.com/websockets/v3?app_id=${APP_ID}`);
   await new Promise((resolve, reject) => { ws.on('open', resolve); ws.on('error', reject); });
 
   const m1Needed = Math.ceil(HISTORY_DAYS * 24 * 60);
   const h1Needed = Math.ceil(HISTORY_DAYS * 24) + WINDOW;
+  const customEnd = END_DATE ? Math.floor(new Date(END_DATE + 'T23:59:59Z').getTime() / 1000) : null;
+  if (END_DATE && (!customEnd || isNaN(customEnd))) {
+    console.error(`Invalid END_DATE: "${END_DATE}" — expected something like "2026-08-19"`);
+    process.exit(1);
+  }
 
   console.log('Fetching M1 history...');
-  const m1All = await fetchHistory(ws, SYMBOL, GRAN_M1, m1Needed);
+  const m1All = await fetchHistory(ws, SYMBOL, GRAN_M1, m1Needed, customEnd);
   console.log(`Got ${m1All.length} M1 candles.\n`);
 
   console.log('Fetching H1 history...');
-  const h1All = await fetchHistory(ws, SYMBOL, GRAN_H1, h1Needed);
+  const h1All = await fetchHistory(ws, SYMBOL, GRAN_H1, h1Needed, customEnd);
   console.log(`Got ${h1All.length} H1 candles.\n`);
 
   ws.close();
@@ -224,7 +231,8 @@ async function main() {
 
     if (pendingSetup && atr) {
       const closedCandle = windowSlice.length >= 2 ? windowSlice[windowSlice.length - 2] : null;
-      const zones = getCandidateZones(pendingSetup.direction, m1res, atr, localIdx);
+      const zones = getCandidateZones(pendingSetup.direction, m1res, atr, localIdx)
+        .filter(z => !EXCLUDE_ZONES.includes(z.type));
       diag.zonesComputedCount += zones.length;
       let triggeredZone = null;
       for (const z of zones) {
